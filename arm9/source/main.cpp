@@ -81,11 +81,10 @@ void selectRom() {
     }
     free(filename);
 
-    
-
     updateScreens();
 
     initializeGameboyFirstTime();
+
 }
 
 void initGBMode() {
@@ -246,6 +245,7 @@ int main(int argc, char* argv[])
     }
 
     runEmul();
+
 
     return 0;
 }

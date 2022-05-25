@@ -24,6 +24,7 @@
 #include "common.h"
 #include "filechooser.h"
 #include "rom_bin.h"
+#include "save_bin.h"
 
 
 #define FAT_CACHE_SIZE 16
@@ -62,6 +63,39 @@ int bankSlotIDs[MAX_ROM_BANKS]; // Keeps track of which bank occupies which slot
 std::vector<int> lastBanksUsed;
 
 bool suspendStateExists;
+
+const int STATE_VERSION = 5;
+
+struct StateStruct {
+    // version
+    // bg/sprite PaletteData
+    // vram
+    // wram
+    // hram
+    // sram
+    Registers regs;
+    int halt, ime;
+    bool doubleSpeed, biosOn;
+    int gbMode;
+    int romBank, ramBank, wramBank, vramBank;
+    int memoryModel;
+    clockStruct clock;
+    int scanlineCounter, timerCounter, phaseCounter, dividerCounter;
+    // v2
+    int serialCounter;
+    // v3
+    bool ramEnabled;
+    // MBC-specific stuff
+    // v4
+    //  bool sgbMode;
+    //  If sgbMode == true:
+    //   int sgbPacketLength;
+    //   int sgbPacketsTransferred;
+    //   int sgbPacketBit;
+    //   u8 sgbCommand;
+    //   u8 gfxMask;
+    //   u8[20*18] sgbMap;
+};
 
 void initInput()
 {
@@ -593,6 +627,71 @@ int loadRom(char* f)
 }
 
 
+int loadSaveFromROM()
+{
+    if (saveFile != NULL) {
+        fclose(saveFile);
+        saveFile = NULL;
+    }
+    if (externRam != NULL) {
+        free(externRam);
+        externRam = NULL;
+    }
+
+    // Get the game's external memory size and allocate the memory
+    switch(ramSize)
+    {
+        case 0:
+            numRamBanks = 0;
+            break;
+        case 1:
+        case 2:
+            numRamBanks = 1;
+            break;
+        case 3:
+            numRamBanks = 4;
+            break;
+        case 4:
+            numRamBanks = 16;
+            break;
+        default:
+            printLog("Invalid RAM bank number: %x\nDefaulting to 4 banks\n", ramSize);
+            numRamBanks = 4;
+            break;
+    }
+    if (MBC == MBC2)
+        numRamBanks = 1;
+
+    if (numRamBanks == 0)
+        return 0;
+
+    externRam = (u8*)malloc(numRamBanks*0x2000);
+
+    // Now load the data.
+    saveFile = fmemopen((void*)save_bin, save_bin_size, "r+b");
+    int neededFileSize = numRamBanks*0x2000;
+    if (MBC == MBC3 || MBC == HUC3)
+        neededFileSize += sizeof(clockStruct);
+
+    int fileSize = 0;
+    if (saveFile) {
+        fseek(saveFile, 0, SEEK_END);
+        fileSize = ftell(saveFile);
+        fseek(saveFile, 0, SEEK_SET);
+    }
+
+    fread(externRam, 1, 0x2000*numRamBanks, saveFile);
+
+    switch (MBC) {
+        case MBC3:
+        case HUC3:
+            fread(&gbClock, 1, sizeof(gbClock), saveFile);
+            break;
+    }
+
+    return 0;
+}
+
 int loadRomFromROM()
 {
     if (romFile != NULL)
@@ -713,6 +812,8 @@ int loadRomFromROM()
         fclose(romFile);
         romFile = NULL;
     }
+
+    loadSaveFromROM();
 
     return 0;
 }
@@ -995,38 +1096,7 @@ void printRomInfo() {
     iprintf("RAM Size: %.2x (%d banks)\n", ramSize, numRamBanks);
 }
 
-const int STATE_VERSION = 5;
 
-struct StateStruct {
-    // version
-    // bg/sprite PaletteData
-    // vram
-    // wram
-    // hram
-    // sram
-    Registers regs;
-    int halt, ime;
-    bool doubleSpeed, biosOn;
-    int gbMode;
-    int romBank, ramBank, wramBank, vramBank;
-    int memoryModel;
-    clockStruct clock;
-    int scanlineCounter, timerCounter, phaseCounter, dividerCounter;
-    // v2
-    int serialCounter;
-    // v3
-    bool ramEnabled;
-    // MBC-specific stuff
-    // v4
-    //  bool sgbMode;
-    //  If sgbMode == true:
-    //   int sgbPacketLength;
-    //   int sgbPacketsTransferred;
-    //   int sgbPacketBit;
-    //   u8 sgbCommand;
-    //   u8 gfxMask;
-    //   u8[20*18] sgbMap;
-};
 
 void saveState(int stateNum) {
     FILE* outFile;
