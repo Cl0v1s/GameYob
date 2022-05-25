@@ -23,7 +23,7 @@ void subMenuGenericUpdateFunc(); // Private function here
 const int screenTileWidth = 32;
 const int backlights[] = {PM_BACKLIGHT_TOP, PM_BACKLIGHT_BOTTOM};
 
-bool consoleDebugOutput = false;
+bool consoleDebugOutput = true;
 bool menuOn = false;
 bool consoleInitialized = false;
 int menu=0;
@@ -765,8 +765,8 @@ void printLog(const char *format, ...) {
     va_list args;
     va_start(args, format);
 
-    if (consoleDebugOutput)
-        viprintf(format, args);
+    //if (consoleDebugOutput)
+    viprintf(format, args);
 }
 
 

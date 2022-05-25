@@ -1,5 +1,6 @@
 #include <nds.h>
 #include <dswifi9.h>
+#include <time.h>
 #include "nifi.h"
 #include "mmu.h"
 #include "main.h"
@@ -12,6 +13,8 @@ volatile int linkSendData;
 volatile bool transferWaiting = false;
 volatile bool transferReady = false;
 volatile int nifiSendid = 0;
+
+unsigned char macId;
 
 bool nifiEnabled=true;
 
@@ -39,11 +42,16 @@ void packetHandler(int packetID, int readlength)
 	
     // Check this is the right kind of packet
     if (data[32] == 'Y' && data[33] == 'O') {
-        u8 command = data[34];
-        u8 val = data[35];
-        int sendid = *((int*)(data+36));
+        unsigned char id = data[34];
+        if(id == macId) return;
+        u8 command = data[35];
+        u8 val = data[36];
+        //int sendid = *((int*)(data+36));
 
-        if (lastSendid == sendid) {
+        iprintf("Received %d: %d\n", command, val);
+
+
+        /*if (lastSendid == sendid) {
             if (!(ioRam[0x02] & 0x01)) {
                 nifiSendid--;
                 sendPacketByte(56, linkSendData);
@@ -52,6 +60,7 @@ void packetHandler(int packetID, int readlength)
             return;
         }
         lastSendid = sendid;
+        */
 
         if (command == 55 || command == 56) {
             //printLog("%d: Received %x\n", ioRam[0x02]&1, val);
@@ -75,7 +84,7 @@ void packetHandler(int packetID, int readlength)
             case 56:
                 transferReady = true;
                 cyclesToExecute = -1;
-                nifiSendid++;
+                // nifiSendid++;
                 break;
             default:
                 //printLog("Unknown packet\n");
@@ -100,6 +109,18 @@ void enableNifi()
 // Wifi_EnableWifi: Instructs the ARM7 to go into a basic "active" mode, not actually
 //   associated to an AP, but actively receiving and potentially transmitting
 	Wifi_EnableWifi();
+    
+    int temp = 0;
+    unsigned char macAddress[6];
+    int macLength = Wifi_GetData(WIFIGETDATA_MACADDRESS, sizeof(char)*6, macAddress);
+    for(int i = 0; i < macLength; i++) {
+        temp += macAddress[i];
+    }
+    time_t rawtime;
+    time (&rawtime);
+    macId = (temp + (rawtime & 0xFF)) & 0xFF;
+    printLog("MAC %d (%d)", macId, macLength);
+
 
 // Wifi_RawSetPacketHandler: Set a handler to process all raw incoming packets
 //  WifiPacketHandler wphfunc:  Pointer to packet handler (see WifiPacketHandler definition for more info)
@@ -127,10 +148,11 @@ void sendPacketByte(u8 command, u8 data)
     unsigned char buffer[8];
     buffer[0] = 'Y';
     buffer[1] = 'O';
-    buffer[2] = command;
-    buffer[3] = data;
-    *((int*)(buffer+4)) = nifiSendid;
+    buffer[2] = macId;
+    buffer[3] = command;
+    buffer[4] = data;
+    //*((int*)(buffer+4)) = nifiSendid;
     //printLog("%d: Sent %x\n", ioRam[0x02]&1, data);
-    if (Wifi_RawTxFrame(8, 0x0014, (unsigned short *)buffer) != 0)
+    if (Wifi_RawTxFrame(8, 0x000A, (unsigned short *)buffer) != 0)
         printLog("Nifi send error\n");
 }
