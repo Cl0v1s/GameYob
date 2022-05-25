@@ -23,6 +23,8 @@
 #include "gbs.h"
 #include "common.h"
 #include "filechooser.h"
+#include "rom_bin.h"
+
 
 #define FAT_CACHE_SIZE 16
 
@@ -586,6 +588,131 @@ int loadRom(char* f)
     }
 
     loadSave();
+
+    return 0;
+}
+
+
+int loadRomFromROM()
+{
+    if (romFile != NULL)
+        fclose(romFile);
+
+    // Check if this is a GBS file
+    gbsMode = false;
+
+    free(romBankSlots);
+    romBankSlots = (unsigned char*)rom_bin;
+    romFile = fmemopen((void*)rom_bin, rom_bin_size, "rb");
+
+    if (romFile == NULL)
+    {
+        //printLog("Error opening %s.\n", filename);
+        return 1;
+    }
+    fseek(romFile, 0, SEEK_END);
+    numRomBanks = (rom_bin_size+0x3fff)/0x4000; // Get number of banks, rounded up
+    // Round numRomBanks to a power of 2
+    int n=1;
+    while (n < numRomBanks) n*=2;
+    numRomBanks = n;
+
+    //int rawRomSize = ftell(romFile);
+    rewind(romFile);
+
+
+    if (numRomBanks <= maxLoadedRomBanks)
+        numLoadedRomBanks = numRomBanks;
+    else
+        numLoadedRomBanks = maxLoadedRomBanks;
+
+    romSlot0 = romBankSlots;
+    romSlot1 = romBankSlots + 0x4000;
+
+    for (int i=0; i<numRomBanks; i++) {
+        bankSlotIDs[i] = -1;
+    }
+    // Load rom banks and initialize all those "bank" arrays
+    lastBanksUsed = std::vector<int>();
+    bankSlotIDs[0] = 0;
+
+    // Read the rest of the banks
+    for (int i=1; i<numLoadedRomBanks; i++) {
+        bankSlotIDs[i] = i;
+        lastBanksUsed.push_back(i);
+    }
+
+
+    cgbFlag = romSlot0[0x143];
+    romSize = romSlot0[0x148];
+    ramSize = romSlot0[0x149];
+    mapper  = romSlot0[0x147];
+
+    int nameLength = 16;
+    if (cgbFlag == 0x80 || cgbFlag == 0xc0)
+        nameLength = 15;
+    for (int i=0; i<nameLength; i++) 
+        romTitle[i] = (char)romSlot0[i+0x134];
+    romTitle[nameLength] = '\0';
+
+    hasRumble = false;
+
+    switch (mapper) {
+        case 0: case 8: case 9:
+            MBC = MBC0; 
+            break;
+        case 1: case 2: case 3:
+            MBC = MBC1;
+            break;
+        case 5: case 6:
+            MBC = MBC2;
+            break;
+            //case 0xb: case 0xc: case 0xd:
+            //MBC = MMM01;
+            //break;
+        case 0xf: case 0x10: case 0x11: case 0x12: case 0x13:
+            MBC = MBC3;
+            break;
+            //case 0x15: case 0x16: case 0x17:
+            //MBC = MBC4;
+            //break;
+        case 0x19: case 0x1a: case 0x1b: 
+            MBC = MBC5;
+            break;
+        case 0x1c: case 0x1d: case 0x1e:
+            MBC = MBC5;
+            hasRumble = true;
+            break;
+        case 0x22:
+            MBC = MBC7;
+            break;
+        case 0xea: /* Hack for SONIC5 */
+            MBC = MBC1;
+            break;
+        case 0xfe:
+            MBC = HUC3;
+            break;
+        case 0xff:
+            MBC = HUC1;
+            break;
+        default:
+            printLog("Unsupported MBC %02x\n", mapper);
+            return 1;
+    }
+
+    // Little hack to preserve "quickread" from gbcpu.cpp.
+    if (biosExists) {
+        for (int i=0x100; i<0x150; i++)
+            bios[i] = romSlot0[i];
+    }
+
+    suspendStateExists = checkStateExists(-1);
+
+    // If we've loaded everything, close the rom file
+    if (numRomBanks <= numLoadedRomBanks) {
+        fclose(romFile);
+        romFile = NULL;
+    }
 
     return 0;
 }

@@ -73,6 +73,7 @@ int mapGbKey(int gbKey); // Maps a "functional" key to a physical key.
 
 void loadBios(const char* filename);
 int loadRom(char* filename);
+int loadRomFromROM();
 void loadRomBank();
 bool isRomBankLoaded(int bank);
 u8* getRomBank(int bank);

@@ -18,7 +18,7 @@ TARGET :=	gameyob
 BUILD		:=	build
 SOURCES		:=	source
 INCLUDES	:=	include ../include
-DATA		:=
+DATA		:=  data/
 GFX			:= gfx/
 
 #---------------------------------------------------------------------------------
