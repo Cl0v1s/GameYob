@@ -22,94 +22,53 @@ volatile bool readyToSend=true;
 
 int lastSendid = 0xff;
 
-void transferWaitingTimeoutFunc() {
-    transferWaiting = false;
-    timerStop(2);
-}
+unsigned char sendId = 0;
+int nifiMode = 0;
+unsigned char nifiBuffer = 0x00;
 
 void packetHandler(int packetID, int readlength)
 {
     static char data[4096];
-    // static int bytesRead = 0; // Not used
-
-    // Wifi_RxRawReadPacket:  Allows user code to read a packet from within the WifiPacketHandler function
-    //  long packetID:		a non-unique identifier which locates the packet specified in the internal buffer
-    //  long readlength:		number of bytes to read (actually reads (number+1)&~1 bytes)
-    //  unsigned short * data:	location for the data to be read into
-    
-	// bytesRead = Wifi_RxRawReadPacket(packetID, readlength, (unsigned short *)data); // Not used
 	Wifi_RxRawReadPacket(packetID, readlength, (unsigned short *)data);
-	
-    // Check this is the right kind of packet
-    if (data[32] == 'Y' && data[33] == 'O') {
-        unsigned char id = data[34];
-        if(id == macId) return;
-        u8 command = data[35];
-        u8 val = data[36];
-        //int sendid = *((int*)(data+36));
+    if (data[32] != 'Y' || data[33] != 'O') {
+        return;
+    }
+    u8 id = data[34];
+    if(id == macId) return;
+    u8 val = data[35];
+    u8 sid = data[36];
+    printLog("rec from %d: %d (%d/%d)\n", id, val, sid, sendId);
 
-        iprintf("Received %d: %d\n", command, val);
-
-
-        /*if (lastSendid == sendid) {
-            if (!(ioRam[0x02] & 0x01)) {
-                nifiSendid--;
-                sendPacketByte(56, linkSendData);
-                nifiSendid++;
+    switch(nifiMode){
+        // we are slave and we get a packet from master
+        case 0x00:
+            nifiBuffer = val;
+            unsigned char buffer[8];
+            buffer[0] = 'Y';
+            buffer[1] = 'O';
+            buffer[2] = macId;
+            buffer[3] = ioRam[0x01];
+            buffer[4] = sid;
+            Wifi_RawTxFrame(8, 0x000A, (unsigned short *)buffer);
+            nifiMode = 0x01;
+        break;
+        // we are master and we get a packet from slave
+        case 0x10:
+            if(sid == sendId) {
+                nifiBuffer = val;
+                nifiMode = 3;
             }
-            return;
-        }
-        lastSendid = sendid;
-        */
-
-        if (command == 55 || command == 56) {
-            //printLog("%d: Received %x\n", ioRam[0x02]&1, val);
-            linkReceivedData = val;
-        }
-
-        //linkReceivedData = 0;
-        switch(command) {
-            // Command sent from "internal clock"
-            case 55:
-                if (ioRam[0x02] & 0x80) {
-                    // Falls through to case 56
-                }
-                else {
-                    printLog("Not ready!\n");
-                    transferWaiting = true;
-                    timerStart(2, ClockDivider_64, 10000, transferWaitingTimeoutFunc);
-                    break;
-                }
-                // Internal clock receives a response from external clock
-            case 56:
-                transferReady = true;
-                cyclesToExecute = -1;
-                // nifiSendid++;
-                break;
-            default:
-                //printLog("Unknown packet\n");
-                break;
-        }
+        break;
     }
 }
-
 
 
 void enableNifi()
 {
 	Wifi_InitDefault(false);
-
-// Wifi_SetPromiscuousMode: Allows the DS to enter or leave a "promsicuous" mode, in which 
-//   all data that can be received is forwarded to the arm9 for user processing.
-//   Best used with Wifi_RawSetPacketHandler, to allow user code to use the data
-//   (well, the lib won't use 'em, so they're just wasting CPU otherwise.)
-//  int enable:  0 to disable promiscuous mode, nonzero to engage
 	Wifi_SetPromiscuousMode(1);
-
-// Wifi_EnableWifi: Instructs the ARM7 to go into a basic "active" mode, not actually
-//   associated to an AP, but actively receiving and potentially transmitting
 	Wifi_EnableWifi();
-    
+    // get identity
     int temp = 0;
     unsigned char macAddress[6];
     int macLength = Wifi_GetData(WIFIGETDATA_MACADDRESS, sizeof(char)*6, macAddress);
@@ -121,17 +80,9 @@ void enableNifi()
     macId = (temp + (rawtime & 0xFF)) & 0xFF;
     printLog("MAC %d (%d)", macId, macLength);
 
-
-// Wifi_RawSetPacketHandler: Set a handler to process all raw incoming packets
-//  WifiPacketHandler wphfunc:  Pointer to packet handler (see WifiPacketHandler definition for more info)
 	Wifi_RawSetPacketHandler(packetHandler);
 
-// Wifi_SetChannel: If the wifi system is not connected or connecting to an access point, instruct
-//   the chipset to change channel
-//  int channel: the channel to change to, in the range of 1-13
 	Wifi_SetChannel(10);
-
-    transferWaiting = false;
     nifiEnabled = true;
 }
 
@@ -140,19 +91,16 @@ void disableNifi() {
     nifiEnabled = false;
 }
 
-
-void sendPacketByte(u8 command, u8 data)
-{
-    if (!nifiEnabled)
-        return;
+void initMaster(unsigned char data) {
+    printLog("Init master !\n");
+    sendId = sendId + 1;
+    nifiMode = 0x10;
+    nifiBuffer = 0;
     unsigned char buffer[8];
     buffer[0] = 'Y';
     buffer[1] = 'O';
     buffer[2] = macId;
-    buffer[3] = command;
-    buffer[4] = data;
-    //*((int*)(buffer+4)) = nifiSendid;
-    //printLog("%d: Sent %x\n", ioRam[0x02]&1, data);
-    if (Wifi_RawTxFrame(8, 0x000A, (unsigned short *)buffer) != 0)
-        printLog("Nifi send error\n");
+    buffer[3] = data;
+    buffer[4] = sendId;
+    Wifi_RawTxFrame(8, 0x000A, (unsigned short *)buffer);
 }

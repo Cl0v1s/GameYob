@@ -12,3 +12,10 @@ extern bool nifiEnabled;
 void enableNifi();
 void disableNifi();
 void sendPacketByte(u8 command, u8 data);
+
+extern int nifiMode;
+extern unsigned char nifiBuffer;
+void initMaster(unsigned char data);
+bool master();
+void initSlave(unsigned char data);
+bool slave();

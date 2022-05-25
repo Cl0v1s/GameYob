@@ -283,6 +283,14 @@ void runEmul()
 {
     for (;;)
     {
+        if(nifiMode == 3) {
+            nifiMode = 0;
+            ioRam[0x01] = nifiBuffer;
+            requestInterrupt(SERIAL);
+            ioRam[0x02] &= ~0x80;
+        }
+
+
         cyclesToEvent -= extraCycles;
         int cycles;
         if (halt)
@@ -309,24 +317,6 @@ void runEmul()
             }
             else
                 setEventCycles(serialCounter);
-        }
-        if (transferReady) {
-            if (nifiEnabled) {
-                if (!(ioRam[0x02] & 1)) {
-                    sendPacketByte(56, linkSendData);
-                    timerStop(2);
-                }
-            }
-            else if (printerEnabled) {
-                sendGbPrinterByte(ioRam[0x01]);
-            }
-            else
-                linkReceivedData = 0xff;
-            ioRam[0x01] = linkReceivedData;
-            requestInterrupt(SERIAL);
-            ioRam[0x02] &= ~0x80;
-            linkReceivedData = -1;
-            transferReady = false;
         }
 
         updateTimers(cycles);
