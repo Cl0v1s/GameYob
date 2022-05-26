@@ -113,36 +113,29 @@ void sendGbPrinterByte(u8 dat) {
 
     switch(printerPacketByte) {
         case 0: // Magic byte
-            linkReceivedData = 0x00;
             if (dat != 0x88)
                 goto endPacket;
             break;
         case 1: // Magic byte
-            linkReceivedData = 0x00;
             if (dat != 0x33)
                 goto endPacket;
             break;
         case 2: // Command
-            linkReceivedData = 0x00;
             printerCmd = dat;
             break;
         case 3: // Compression flag
-            linkReceivedData = 0x00;
             printerPacketCompressed = dat;
             if (printerPacketCompressed)
                 printerCompressionLen = 0;
             break;
         case 4: // Length (LSB)
-            linkReceivedData = 0x00;
             printerCmdLength = dat;
             break;
         case 5: // Length (MSB)
-            linkReceivedData = 0x00;
             printerCmdLength |= dat<<8;
             break;
 
         case 6: // variable-length data
-            linkReceivedData = 0x00;
 
             if (!printerPacketCompressed) {
                 printerSendVariableLenData(dat);
@@ -172,16 +165,13 @@ void sendGbPrinterByte(u8 dat) {
             return; // printerPacketByte won't be incremented
 
         case 7: // Checksum (LSB)
-            linkReceivedData = 0x00;
             printerExpectedChecksum = dat;
             break;
         case 8: // Checksum (MSB)
-            linkReceivedData = 0x00;
             printerExpectedChecksum |= dat<<8;
             break;
 
         case 9: // Alive indicator
-            linkReceivedData = 0x81;
             break;
 
         case 10: // Status
@@ -204,7 +194,6 @@ void sendGbPrinterByte(u8 dat) {
                     break;
             }
 
-            linkReceivedData = printerStatus;
 
             // The received value apparently shouldn't contain this until next 
             // packet.

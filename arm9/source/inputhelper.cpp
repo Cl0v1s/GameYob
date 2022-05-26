@@ -1265,7 +1265,6 @@ int loadState(int stateNum) {
     if (version < 3)
         ramEnabled = true;
 
-    transferReady = false;
     timerPeriod = periods[ioRam[0x07]&0x3];
     cyclesToEvent = 1;
 

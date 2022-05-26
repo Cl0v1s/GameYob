@@ -8,58 +8,152 @@
 #include "gbcpu.h"
 #include "console.h"
 
-volatile int linkReceivedData=-1;
-volatile int linkSendData;
-volatile bool transferWaiting = false;
-volatile bool transferReady = false;
-volatile int nifiSendid = 0;
+#define SYNC1 104
+#define SYNC2 105
+#define SYNC3 106
 
+#define NO_TRANSFER 0
+#define TRANSFER_MASTER 1
+#define TRANSFER_SLAVE 2
+#define TRANSFER_READY 3
+
+/*
+    unsigned char buffer[8];
+    buffer[0] = 'Y';
+    buffer[1] = 'O';
+    buffer[2] = macId;
+    buffer[3] = ioRam[0x01];
+    buffer[4] = sid;
+    Wifi_RawTxFrame(8, 0x000A, (unsigned short *)buffer);
+*/
+bool nifiEnabled = true;
+bool nifiReady = false;
 unsigned char macId;
 
-bool nifiEnabled=true;
+int receivedData = -1;
+int transferState = NO_TRANSFER;
 
-volatile bool readyToSend=true;
+struct BGBPacket {
+    unsigned char b1;
+    unsigned char b2;
+    unsigned char b3;
+    unsigned char b4;
+    unsigned int i1;
+};
 
-int lastSendid = 0xff;
 
-unsigned char sendId = 0;
-int nifiMode = 0;
-unsigned char nifiBuffer = 0x00;
+void setTransferState(int state) {
+    if(state == NO_TRANSFER) {
+        timerStop(2);
+    }
+    if(transferState == NO_TRANSFER && state != NO_TRANSFER){
+        timerStart(2, ClockDivider_64, 10000, timeout);
+    }
+    printLog("Going into %d\n", state);
+    transferState = state;
+}
+
+void timeout() {
+    //printLog("Transfer Timeout\n");
+    setTransferState(NO_TRANSFER);
+    receivedData = -1;
+}
+
+
+
+
+void sendPacket(BGBPacket packet) {
+    int size = 5+sizeof(unsigned int);
+    unsigned char buffer[size];
+    buffer[0] = macId;
+    buffer[1] = packet.b1;
+    buffer[2] = packet.b2;
+    buffer[3] = packet.b3;
+    buffer[4] = packet.b4;
+    *((unsigned int*)(buffer+5)) = packet.i1;
+    Wifi_RawTxFrame(size, 0x000A, (unsigned short *)buffer);
+}
+
+void sendSync1() {
+    //printLog("Send SYNC1\n");
+    BGBPacket sync1 = { SYNC1, ioRam[0x01], ioRam[0x02], 0, 0 };
+    sendPacket(sync1);
+    setTransferState(TRANSFER_MASTER);
+}
+
+void sendSync2() {
+    //printLog("Send SYNC2\n");
+    BGBPacket sync2 = { SYNC2, ioRam[0x01], 0x80, 0, 0 };
+    sendPacket(sync2);
+}
+
+void sendSync3() {
+    //printLog("Send SYNC3\n");
+    BGBPacket sync3 = { SYNC3, 42, 42, 42, 0};
+    sendPacket(sync3);
+}
+
+
+bool updateNifi() {
+    if(!nifiEnabled) return true;
+
+    if(transferState == TRANSFER_READY) {
+        applyTransfer();
+    }
+
+    if(transferState != NO_TRANSFER) return false;
+
+
+    return true;
+}
 
 void packetHandler(int packetID, int readlength)
 {
     static char data[4096];
 	Wifi_RxRawReadPacket(packetID, readlength, (unsigned short *)data);
-    if (data[32] != 'Y' || data[33] != 'O') {
+    // we ignore packets coming from us
+    if (data[32] == macId) {
         return;
     }
-    u8 id = data[34];
-    if(id == macId) return;
-    u8 val = data[35];
-    u8 sid = data[36];
-    printLog("rec from %d: %d (%d/%d)\n", id, val, sid, sendId);
 
-    switch(nifiMode){
-        // we are slave and we get a packet from master
-        case 0x00:
-            nifiBuffer = val;
-            unsigned char buffer[8];
-            buffer[0] = 'Y';
-            buffer[1] = 'O';
-            buffer[2] = macId;
-            buffer[3] = ioRam[0x01];
-            buffer[4] = sid;
-            Wifi_RawTxFrame(8, 0x000A, (unsigned short *)buffer);
-            nifiMode = 0x01;
+    BGBPacket packet;
+    packet.b1 = data[33];
+    packet.b2 = data[34];
+    packet.b3 = data[35];
+    packet.b4 = data[36];
+    packet.i1 = *((unsigned int*)(data+37));
+
+    switch (packet.b1)
+    {
+    case SYNC1:
+        setTransferState(TRANSFER_SLAVE);
+        receivedData = packet.b2;
+        sendSync2();
         break;
-        // we are master and we get a packet from slave
-        case 0x10:
-            if(sid == sendId) {
-                nifiBuffer = val;
-                nifiMode = 3;
-            }
+    case SYNC2:
+        setTransferState(2);
+        receivedData = packet.b2;
+        sendSync3();
+        break;
+    case SYNC3:
+        if(transferState == TRANSFER_SLAVE) {
+            sendSync3();
+        }
+        setTransferState(TRANSFER_READY);
+        break;
+    default:
         break;
     }
+}
+
+void applyTransfer() {
+    if(receivedData == -1 || transferState != 3) return;
+    //printLog("Apply transfer %d to %d\n", ioRam[0x01], receivedData & 0xFF);
+    ioRam[0x01] = receivedData & 0xFF;
+    requestInterrupt(SERIAL);
+    ioRam[0x02] &= ~0x80;
+    receivedData = -1;
+    setTransferState(NO_TRANSFER);
 }
 
 
@@ -78,29 +172,18 @@ void enableNifi()
     time_t rawtime;
     time (&rawtime);
     macId = (temp + (rawtime & 0xFF)) & 0xFF;
-    printLog("MAC %d (%d)", macId, macLength);
+    printLog("MAC %u (%u)", macId, macLength);
 
 	Wifi_RawSetPacketHandler(packetHandler);
 
 	Wifi_SetChannel(10);
+
     nifiEnabled = true;
 }
 
 void disableNifi() {
     Wifi_DisableWifi();
     nifiEnabled = false;
-}
-
-void initMaster(unsigned char data) {
-    printLog("Init master !\n");
-    sendId = sendId + 1;
-    nifiMode = 0x10;
-    nifiBuffer = 0;
-    unsigned char buffer[8];
-    buffer[0] = 'Y';
-    buffer[1] = 'O';
-    buffer[2] = macId;
-    buffer[3] = data;
-    buffer[4] = sendId;
-    Wifi_RawTxFrame(8, 0x000A, (unsigned short *)buffer);
+    nifiReady = false;
+    setTransferState(0);
 }

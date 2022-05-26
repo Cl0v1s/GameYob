@@ -283,14 +283,7 @@ void runEmul()
 {
     for (;;)
     {
-        if(nifiMode == 3) {
-            nifiMode = 0;
-            ioRam[0x01] = nifiBuffer;
-            requestInterrupt(SERIAL);
-            ioRam[0x02] &= ~0x80;
-        }
-
-
+        if(!updateNifi()) continue;
         cyclesToEvent -= extraCycles;
         int cycles;
         if (halt)
@@ -312,12 +305,12 @@ void runEmul()
             serialCounter -= cycles;
             if (serialCounter <= 0) {
                 serialCounter = 0;
-                linkReceivedData = 0xff;
-                transferReady = true;
             }
             else
                 setEventCycles(serialCounter);
         }
+
+      
 
         updateTimers(cycles);
 

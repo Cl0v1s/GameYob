@@ -811,7 +811,7 @@ void writeIO(u8 ioReg, u8 val)
                 } else {
                     if(val & 0x80) {
                         if(val & 0x01) {
-                            initMaster(ioRam[0x01]);
+                            sendSync1();
                         }
                     }
                 }
