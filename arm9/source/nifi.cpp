@@ -13,9 +13,8 @@
 #define SYNC3 106
 
 #define NO_TRANSFER 0
-#define TRANSFER_MASTER 1
-#define TRANSFER_SLAVE 2
-#define TRANSFER_READY 3
+#define TRANSFER_INIT 1
+#define TRANSFER_READY 2
 
 /*
     unsigned char buffer[8];
@@ -49,7 +48,7 @@ void setTransferState(int state) {
     if(transferState == NO_TRANSFER && state != NO_TRANSFER){
         timerStart(2, ClockDivider_64, 10000, timeout);
     }
-    printLog("Going into %d\n", state);
+    // printLog("Going into %d\n", state);
     transferState = state;
 }
 
@@ -58,9 +57,6 @@ void timeout() {
     setTransferState(NO_TRANSFER);
     receivedData = -1;
 }
-
-
-
 
 void sendPacket(BGBPacket packet) {
     int size = 5+sizeof(unsigned int);
@@ -76,9 +72,9 @@ void sendPacket(BGBPacket packet) {
 
 void sendSync1() {
     //printLog("Send SYNC1\n");
+    setTransferState(TRANSFER_INIT);
     BGBPacket sync1 = { SYNC1, ioRam[0x01], ioRam[0x02], 0, 0 };
     sendPacket(sync1);
-    setTransferState(TRANSFER_MASTER);
 }
 
 void sendSync2() {
@@ -126,20 +122,20 @@ void packetHandler(int packetID, int readlength)
     switch (packet.b1)
     {
     case SYNC1:
-        setTransferState(TRANSFER_SLAVE);
+        setTransferState(TRANSFER_INIT);
         receivedData = packet.b2;
         sendSync2();
         break;
     case SYNC2:
-        setTransferState(2);
+        setTransferState(TRANSFER_INIT);
         receivedData = packet.b2;
         sendSync3();
         break;
     case SYNC3:
-        if(transferState == TRANSFER_SLAVE) {
+        if(transferState == TRANSFER_INIT) {
             sendSync3();
+            setTransferState(TRANSFER_READY);
         }
-        setTransferState(TRANSFER_READY);
         break;
     default:
         break;
@@ -147,7 +143,7 @@ void packetHandler(int packetID, int readlength)
 }
 
 void applyTransfer() {
-    if(receivedData == -1 || transferState != 3) return;
+    if(receivedData == -1 || transferState != TRANSFER_READY) return;
     //printLog("Apply transfer %d to %d\n", ioRam[0x01], receivedData & 0xFF);
     ioRam[0x01] = receivedData & 0xFF;
     requestInterrupt(SERIAL);
@@ -185,5 +181,5 @@ void disableNifi() {
     Wifi_DisableWifi();
     nifiEnabled = false;
     nifiReady = false;
-    setTransferState(0);
+    setTransferState(NO_TRANSFER);
 }
