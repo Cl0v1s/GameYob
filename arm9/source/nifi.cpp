@@ -13,8 +13,10 @@
 #define SYNC3 106
 
 #define NO_TRANSFER 0
-#define TRANSFER_INIT 1
+#define TRANSER_WAIT 1
 #define TRANSFER_READY 2
+
+#define CLOCK_TICKS 15
 
 /*
     unsigned char buffer[8];
@@ -32,6 +34,10 @@ unsigned char macId;
 int receivedData = -1;
 int transferState = NO_TRANSFER;
 
+unsigned int lastClockPing = 0;
+unsigned int uclock = 0;
+unsigned int clockDiff = 0;
+
 struct BGBPacket {
     unsigned char b1;
     unsigned char b2;
@@ -40,18 +46,35 @@ struct BGBPacket {
     unsigned int i1;
 };
 
+void clockTick() {
+    uclock += 1;
+    // if uclock overflow
+    if(uclock == 0) {
+        lastClockPing = 0;
+    }
+}
 
 void setTransferState(int state) {
-    if(state == NO_TRANSFER) {
+    if(state == TRANSER_WAIT) {
+        // we stop clock when we are waiting
+        timerStop(3);
+    } else {
+        timerStart(3, ClockDivider_1, CLOCK_TICKS, clockTick);
+    }
+
+    /*if(state == NO_TRANSFER) {
         receivedData = -1;
         timerStop(2);
     }
     if(transferState == NO_TRANSFER && state != NO_TRANSFER){
         timerStart(2, ClockDivider_64, 10000, timeout);
     }
-    printLog("Going into %d\n", state);
+    */
+    // printLog("Going into %d\n", state);
     transferState = state;
 }
+
+
 
 void timeout() {
     printLog("Transfer Timeout\n");
@@ -72,9 +95,8 @@ void sendPacket(BGBPacket packet) {
 }
 
 void sendSync1() {
-    //printLog("Send SYNC1\n");
-    setTransferState(TRANSFER_INIT);
-    BGBPacket sync1 = { SYNC1, ioRam[0x01], ioRam[0x02], 0, 0 };
+    setTransferState(TRANSER_WAIT);
+    BGBPacket sync1 = { SYNC1, ioRam[0x01], ioRam[0x02], 0, uclock };
     sendPacket(sync1);
 }
 
@@ -86,15 +108,12 @@ void sendSync2() {
 
 void sendSync3() {
     //printLog("Send SYNC3\n");
-    BGBPacket sync3 = { SYNC3, 42, 42, 42, 0};
+    BGBPacket sync3 = { SYNC3, 42, 42, 42, uclock};
     sendPacket(sync3);
 }
 
-
-bool updateNifi() {
-    if(!nifiEnabled) return true;
-    if(transferState != NO_TRANSFER && transferState != TRANSFER_READY) return false;
-    return true;
+void setTransferReady() {
+    setTransferState(TRANSFER_READY);
 }
 
 void packetHandler(int packetID, int readlength)
@@ -115,7 +134,7 @@ void packetHandler(int packetID, int readlength)
 
     switch (packet.b1)
     {
-    case SYNC1:
+    /*case SYNC1:
         setTransferState(TRANSFER_INIT);
         receivedData = packet.b2;
         sendSync2();
@@ -133,15 +152,69 @@ void packetHandler(int packetID, int readlength)
             }
             break;
         }
+    */
+   case SYNC1:
+        {
+            setTransferState(TRANSER_WAIT);
+            receivedData = packet.b2;
+
+            sendSync2();
+
+            // managing clockDiff
+            unsigned int tempDiff;
+            if(packet.i1 > uclock) {
+                tempDiff = packet.i1 - uclock;
+            } else {
+                tempDiff = uclock - packet.i1;
+            }
+            unsigned int waitingTime;
+            if(tempDiff > clockDiff) waitingTime = tempDiff - clockDiff;
+            else waitingTime = clockDiff - tempDiff;
+
+            printLog("WaitingTime: %d\n", waitingTime);
+            if(waitingTime == 0) {
+                setTransferReady();
+            } else {
+                timerStart(3, ClockDivider_1, CLOCK_TICKS * waitingTime, setTransferReady);
+            }
+            break;
+        }
+    case SYNC2:
+        receivedData = packet.b2;
+        setTransferReady();
+    break;
+   case SYNC3:
+        {
+            if(packet.i1 > uclock) {
+                clockDiff = packet.i1 - uclock;
+            } else {
+                clockDiff = uclock - packet.i1;
+            }
+            //printLog("ClockDiff set at %u\n", clockDiff);
+            break;
+        }
     default:
         break;
     }
 }
 
+bool updateNifi() {
+    if(!nifiEnabled) return true;
+
+    if(transferState != NO_TRANSFER && transferState != TRANSFER_READY) return false;
+
+    // update clockDiff between other and us
+    if(uclock > lastClockPing + 1000) {
+        sendSync3();
+        lastClockPing = uclock;
+    }
+
+    return true;
+}
 
 void applyTransfer() {
     if(receivedData == -1 || transferState != TRANSFER_READY) return;
-    //printLog("<- %02x <- %02x\n", ioRam[0x01], receivedData & 0xFF);
+    printLog("S:%02x R:%02x\n", ioRam[0x01], receivedData & 0xFF);
     ioRam[0x01] = receivedData & 0xFF;
     requestInterrupt(SERIAL);
     ioRam[0x02] &= ~0x80;
@@ -168,10 +241,9 @@ void enableNifi()
     printLog("MAC %u (%u)", macId, macLength);
 
 	Wifi_RawSetPacketHandler(packetHandler);
-
 	Wifi_SetChannel(10);
-
     nifiEnabled = true;
+    timerStart(3, ClockDivider_1, 10, clockTick);
 }
 
 void disableNifi() {
@@ -180,6 +252,6 @@ void disableNifi() {
     nifiReady = false;
     setTransferState(NO_TRANSFER);
     timerStop(3);
-    timerStop(2);
-    receivedData = -1;
+    // timerStop(2);
+    // receivedData = -1;
 }
