@@ -305,6 +305,7 @@ void runEmul()
             serialCounter -= cycles;
             if (serialCounter <= 0) {
                 serialCounter = 0;
+                ioRam[0x01] = 0xFF;
             }
             else
                 setEventCycles(serialCounter);

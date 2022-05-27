@@ -182,8 +182,7 @@ bool updateNifi() {
     return true;
 }
 
-bool applyTransfer(bool master) {
-    if(master && !(ioRam[0x02] & 0x81)) return false;
+bool applyTransfer() {
     if(receivedData == -1 || transferState != TRANSFER_READY) return false;
     printLog("S:0x%02x R:0x%02x\n", ioRam[0x01], receivedData & 0xFF);
     ioRam[0x01] = receivedData & 0xFF;
