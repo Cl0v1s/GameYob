@@ -17,16 +17,8 @@
 #define TRANSFER_READY 2
 
 #define CLOCK_TICKS 15
+#define WAITING_MIN 55535/CLOCK_TICKS
 
-/*
-    unsigned char buffer[8];
-    buffer[0] = 'Y';
-    buffer[1] = 'O';
-    buffer[2] = macId;
-    buffer[3] = ioRam[0x01];
-    buffer[4] = sid;
-    Wifi_RawTxFrame(8, 0x000A, (unsigned short *)buffer);
-*/
 bool nifiEnabled = true;
 bool nifiReady = false;
 unsigned char macId;
@@ -37,6 +29,8 @@ int transferState = NO_TRANSFER;
 unsigned int lastClockPing = 0;
 unsigned int uclock = 0;
 unsigned int clockDiff = 0;
+
+unsigned char nifiBuffer = 0x00;
 
 struct BGBPacket {
     unsigned char b1;
@@ -96,13 +90,13 @@ void sendPacket(BGBPacket packet) {
 
 void sendSync1() {
     setTransferState(TRANSER_WAIT);
-    BGBPacket sync1 = { SYNC1, ioRam[0x01], ioRam[0x02], 0, uclock };
+    BGBPacket sync1 = { SYNC1, nifiBuffer, ioRam[0x02], 0, uclock };
     sendPacket(sync1);
 }
 
 void sendSync2() {
     //printLog("Send SYNC2\n");
-    BGBPacket sync2 = { SYNC2, ioRam[0x01], 0x80, 0, 0 };
+    BGBPacket sync2 = { SYNC2, nifiBuffer, 0x80, 0, 0 };
     sendPacket(sync2);
 }
 
@@ -134,25 +128,6 @@ void packetHandler(int packetID, int readlength)
 
     switch (packet.b1)
     {
-    /*case SYNC1:
-        setTransferState(TRANSFER_INIT);
-        receivedData = packet.b2;
-        sendSync2();
-        break;
-    case SYNC2:
-        setTransferState(TRANSFER_INIT);
-        receivedData = packet.b2;
-        sendSync3();
-        break;
-    case SYNC3:
-        {
-            if(transferState == TRANSFER_INIT) {
-                sendSync3();
-                setTransferState(TRANSFER_READY);
-            }
-            break;
-        }
-    */
    case SYNC1:
         {
             setTransferState(TRANSER_WAIT);
@@ -171,17 +146,12 @@ void packetHandler(int packetID, int readlength)
             if(tempDiff > clockDiff) waitingTime = tempDiff - clockDiff;
             else waitingTime = clockDiff - tempDiff;
 
-            printLog("WaitingTime: %d\n", waitingTime);
-            if(waitingTime == 0) {
-                setTransferReady();
-            } else {
-                timerStart(3, ClockDivider_1, CLOCK_TICKS * waitingTime, setTransferReady);
-            }
+            timerStart(3, ClockDivider_1, CLOCK_TICKS * (waitingTime + WAITING_MIN), setTransferReady);
             break;
         }
     case SYNC2:
         receivedData = packet.b2;
-        setTransferReady();
+        timerStart(3, ClockDivider_1, CLOCK_TICKS * (WAITING_MIN), setTransferReady);
     break;
    case SYNC3:
         {

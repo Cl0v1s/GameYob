@@ -2,6 +2,7 @@
 
 // Don't write directly
 extern bool nifiEnabled;
+extern unsigned char nifiBuffer;
 
 void enableNifi();
 void disableNifi();
