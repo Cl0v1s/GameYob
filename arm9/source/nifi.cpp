@@ -30,8 +30,6 @@ unsigned int lastClockPing = 0;
 unsigned int uclock = 0;
 unsigned int clockDiff = 0;
 
-unsigned char nifiBuffer = 0x00;
-
 struct BGBPacket {
     unsigned char b1;
     unsigned char b2;
@@ -90,13 +88,13 @@ void sendPacket(BGBPacket packet) {
 
 void sendSync1() {
     setTransferState(TRANSER_WAIT);
-    BGBPacket sync1 = { SYNC1, nifiBuffer, ioRam[0x02], 0, uclock };
+    BGBPacket sync1 = { SYNC1, ioRam[0x01], ioRam[0x02], 0, uclock };
     sendPacket(sync1);
 }
 
 void sendSync2() {
     //printLog("Send SYNC2\n");
-    BGBPacket sync2 = { SYNC2, nifiBuffer, 0x80, 0, 0 };
+    BGBPacket sync2 = { SYNC2, ioRam[0x01], 0x80, 0, 0 };
     sendPacket(sync2);
 }
 
@@ -182,14 +180,15 @@ bool updateNifi() {
     return true;
 }
 
-void applyTransfer() {
-    if(receivedData == -1 || transferState != TRANSFER_READY) return;
-    printLog("S:%02x R:%02x\n", ioRam[0x01], receivedData & 0xFF);
+bool applyTransfer() {
+    if(receivedData == -1 || transferState != TRANSFER_READY) return false;
+    printLog("S:0x%02x R:0x%02x\n", ioRam[0x01], receivedData & 0xFF);
     ioRam[0x01] = receivedData & 0xFF;
     requestInterrupt(SERIAL);
     ioRam[0x02] &= ~0x80;
     receivedData = -1;
     setTransferState(NO_TRANSFER);
+    return true;
 }
 
 

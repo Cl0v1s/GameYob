@@ -796,10 +796,6 @@ void writeIO(u8 ioReg, u8 val)
                 refreshP1();
             }
             return;
-        case 0x01:
-            ioRam[ioReg] = val;
-            nifiBuffer = val;
-            return;
         case 0x02:
             {
                 ioRam[ioReg] = val;
@@ -814,8 +810,9 @@ void writeIO(u8 ioReg, u8 val)
                     return;
                 } else {
                     if(val & 0x80) {
-                        if(val & 0x01) {
-                            nifiBuffer = ioRam[0x01];
+                        if(applyTransfer()) {
+                            cyclesToExecute = -1;
+                        } else if(val & 0x01) {
                             sendSync1();
                         }
                     }

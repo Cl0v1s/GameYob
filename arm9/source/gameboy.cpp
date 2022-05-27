@@ -283,10 +283,10 @@ void runEmul()
 {
     for (;;)
     {
-        if(!updateNifi()) continue;
         cyclesToEvent -= extraCycles;
         int cycles;
-        if (halt)
+        if(!updateNifi()) cycles = 0;
+        else if (halt)
             cycles = cyclesToEvent;
         else
             cycles = runOpcode(cyclesToEvent);
