@@ -309,8 +309,7 @@ void runEmul()
             else
                 setEventCycles(serialCounter);
         }
-
-      
+        applyTransfer();
 
         updateTimers(cycles);
 

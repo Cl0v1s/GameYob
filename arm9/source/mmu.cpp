@@ -796,12 +796,6 @@ void writeIO(u8 ioReg, u8 val)
                 refreshP1();
             }
             return;
-        case 0x01:
-            ioRam[ioReg] = val;
-            if(nifiEnabled) {
-                updateBuffer(val);
-            }
-            return;
         case 0x02:
             {
                 ioRam[ioReg] = val;
