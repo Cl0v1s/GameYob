@@ -810,9 +810,7 @@ void writeIO(u8 ioReg, u8 val)
                     return;
                 } else {
                     if(val & 0x80) {
-                        if(applyTransfer()) {
-                            cyclesToExecute = -1;
-                        } else if(val & 0x01) {
+                        if(val & 0x01) {
                             sendSync1();
                         }
                     }

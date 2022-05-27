@@ -50,7 +50,9 @@ void setTransferState(int state) {
     if(state == TRANSER_WAIT) {
         // we stop clock when we are waiting
         timerStop(3);
+        timerStart(2, ClockDivider_64, 10000, timeout);
     } else {
+        timerStop(2);
         timerStart(3, ClockDivider_1, CLOCK_TICKS, clockTick);
     }
 
@@ -70,8 +72,8 @@ void setTransferState(int state) {
 
 void timeout() {
     printLog("Transfer Timeout\n");
-    setTransferState(NO_TRANSFER);
-    receivedData = -1;
+    receivedData = 0xFF;
+    setTransferState(TRANSFER_READY);
 }
 
 void sendPacket(BGBPacket packet) {
@@ -180,7 +182,8 @@ bool updateNifi() {
     return true;
 }
 
-bool applyTransfer() {
+bool applyTransfer(bool master) {
+    if(master && !(ioRam[0x02] & 0x81)) return false;
     if(receivedData == -1 || transferState != TRANSFER_READY) return false;
     printLog("S:0x%02x R:0x%02x\n", ioRam[0x01], receivedData & 0xFF);
     ioRam[0x01] = receivedData & 0xFF;
