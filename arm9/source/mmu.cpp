@@ -201,6 +201,7 @@ void writeSram(u16 addr, u8 val) {
     int pos = addr + currentRamBank*0x2000;
     if (externRam[pos] != val) {
         externRam[pos] = val;
+        printLog("Write\n");
         if (autoSavingEnabled) {
             /*
             fseek(saveFile, currentRamBank*0x2000+addr, SEEK_SET);

@@ -669,25 +669,17 @@ int loadSaveFromROM()
 
     // Now load the data.
     saveFile = fmemopen((void*)save_bin, save_bin_size, "r+b");
-    int neededFileSize = numRamBanks*0x2000;
-    if (MBC == MBC3 || MBC == HUC3)
-        neededFileSize += sizeof(clockStruct);
-
-    int fileSize = 0;
-    if (saveFile) {
-        fseek(saveFile, 0, SEEK_END);
-        fileSize = ftell(saveFile);
-        fseek(saveFile, 0, SEEK_SET);
-    }
-
-    fread(externRam, 1, 0x2000*numRamBanks, saveFile);
+    memcpy(externRam, save_bin, 0x2000*numRamBanks);
 
     switch (MBC) {
         case MBC3:
         case HUC3:
+            fseek(saveFile, 0x2000*numRamBanks, SEEK_SET);
             fread(&gbClock, 1, sizeof(gbClock), saveFile);
             break;
     }
+
+    fclose(saveFile);
 
     return 0;
 }
