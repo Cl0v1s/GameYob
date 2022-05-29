@@ -47,6 +47,10 @@ void clockTick() {
 }
 
 void setTransferState(int state) {
+    if(state != transferState) {
+        cyclesToExecute = -1;
+    }
+
     if(state == TRANSER_WAIT) {
         // we stop clock when we are waiting
         timerStop(3);
@@ -146,6 +150,8 @@ void packetHandler(int packetID, int readlength)
             if(tempDiff > clockDiff) waitingTime = tempDiff - clockDiff;
             else waitingTime = clockDiff - tempDiff;
 
+            clockDiff = tempDiff;
+
             timerStart(3, ClockDivider_1, CLOCK_TICKS * (waitingTime + WAITING_MIN), setTransferReady);
             break;
         }
@@ -174,7 +180,7 @@ bool updateNifi() {
     if(transferState != NO_TRANSFER && transferState != TRANSFER_READY) return false;
 
     // update clockDiff between other and us
-    if(uclock > lastClockPing + 1000) {
+    if(uclock > lastClockPing + 100) {
         sendSync3();
         lastClockPing = uclock;
     }
