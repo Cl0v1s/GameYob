@@ -150,8 +150,6 @@ void packetHandler(int packetID, int readlength)
             if(tempDiff > clockDiff) waitingTime = tempDiff - clockDiff;
             else waitingTime = clockDiff - tempDiff;
 
-            clockDiff = tempDiff;
-
             timerStart(3, ClockDivider_1, CLOCK_TICKS * (waitingTime + WAITING_MIN), setTransferReady);
             break;
         }

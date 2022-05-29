@@ -2,6 +2,7 @@
 
 // Don't write directly
 extern bool nifiEnabled;
+extern int transferState;
 
 void enableNifi();
 void disableNifi();
