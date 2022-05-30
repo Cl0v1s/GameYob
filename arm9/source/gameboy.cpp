@@ -45,7 +45,7 @@ bool sgbMode;
 const int maxWaitCycles=1000000;
 int cyclesToEvent;
 int cyclesSinceVblank=0;
-unsigned int cyclesTotal = 0;
+int cyclesTotal = 0;
 
 bool resettingGameboy = false;
 
@@ -284,13 +284,12 @@ void runEmul()
 {
     for (;;)
     {
-        if(!updateNifi()) continue;
         cyclesToEvent -= extraCycles;
         int cycles;
         if (halt)
             cycles = cyclesToEvent;
         else
-            cycles = runOpcode(cyclesToEvent);
+            cycles = runOpcode(updateNifi(cyclesToEvent));
 
         bool opTriggeredInterrupt = cyclesToExecute == -1;
         cyclesToExecute = -1;
@@ -300,20 +299,24 @@ void runEmul()
         cyclesToEvent = maxWaitCycles;
         extraCycles=0;
 
-        cyclesTotal += cycles << doubleSpeed;
 
         cyclesSinceVblank += cycles;
+        cyclesTotal += cycles >> doubleSpeed;
+
 
         if (serialCounter > 0) {
             serialCounter -= cycles;
             if (serialCounter <= 0) {
                 serialCounter = 0;
-                ioRam[0x01] = 0xFF;
+                if(!nifiEnabled) {
+                    ioRam[0x01] = 0xFF;
+                } else {
+                    swap(true);
+                }
             }
             else
                 setEventCycles(serialCounter);
         }
-        applyTransfer();
 
         updateTimers(cycles);
 
@@ -324,6 +327,7 @@ void runEmul()
             soundCycles = 0;
         }
         setEventCycles(cyclesToSoundEvent);
+
 
         updateLCD(cycles);
 
@@ -364,8 +368,6 @@ void initLCD()
     periods[2] = clockSpeed/65536;
     periods[3] = clockSpeed/16384;
     timerPeriod = periods[0];
-
-    timerStop(2);
 }
 
 // Called either from startup, or when the BIOS writes to FF50.

@@ -6,10 +6,11 @@ extern int transferState;
 
 void enableNifi();
 void disableNifi();
-bool updateNifi();
+int updateNifi(int cycles);
 void sendSync1();
 void sendSync2();
 void updateBuffer(unsigned char data);
 bool applyTransfer();
 void timeout();
 void waitTransfer();
+void swap(bool master);

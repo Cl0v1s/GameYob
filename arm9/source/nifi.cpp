@@ -9,31 +9,32 @@
 #include "console.h"
 #include "timer.h"
 
+#define ALONE 0
+#define PAIRED 1
+#define WAITING 2
+#define SWAP 3
+
+#define HANDSHAKE_REQUEST 101
+#define HANDSHAKE_RESPONSE 102
+#define DELAY_REQUEST 103
+#define DELAY_RESPONSE 104
+#define SYNC_REQUEST 105
+#define SWAP_REQUEST 106
+#define SWAP_ANSWER 107
+
 // timerStart(2, ClockDivider_64, 10000, timeout);
 
-#define SYNC0 103
-#define SYNC1 104
-#define SYNC2 105
-#define SYNC3 106
-#define ACK 107
+unsigned char macId;
+bool nifiEnabled = false;
 
-#define PAIR_NO 0
-#define PAIR_PAIRING 1
-#define PAIR_PAIRED 2
-#define PAIR_SYNCING 3
-#define PAIR_COUNTER 500
 
-int nifiEnable = false;
-int nifiPairState = PAIR_NO;
-time_t nifiPairRestartAt = 0;
-
-unsigned int nifiUpdateCounter = PAIR_COUNTER;
-unsigned int nifiDelay = 0;
-
-void delayTick() {
-    nifiDelay += 1;
-}
-
+struct NIFIStruct {
+    unsigned char state;
+    unsigned int delay;
+    time_t resetAt;
+    int pairTotalCycles;
+    unsigned char pairBuffer;
+};
 
 struct BGBPacket {
     unsigned char b1;
@@ -42,6 +43,8 @@ struct BGBPacket {
     unsigned char b4;
     unsigned int i1;
 };
+
+NIFIStruct nifi = { ALONE, 0, 0, 0};
 
 void sendPacket(BGBPacket packet) {
     int size = 5+sizeof(unsigned int);
@@ -53,6 +56,135 @@ void sendPacket(BGBPacket packet) {
     buffer[4] = packet.b4;
     *((unsigned int*)(buffer+5)) = packet.i1;
     Wifi_RawTxFrame(size, 0x000A, (unsigned short *)buffer);
+}
+
+void disableNifi() {
+    Wifi_DisableWifi();
+    nifiEnabled = false;
+}
+
+// =====================================================================
+unsigned int delayTemp = 0;
+void delayTick() {
+    delayTemp += 1;
+}
+
+
+unsigned int handshakeCounter = 2000;
+void handshake() {
+    handshakeCounter -= 1;
+    if(handshakeCounter == 0) {
+        delayTemp = 0;
+        unsigned int t = (rawTime | 0xFFFFFFFF) + 10;
+        BGBPacket request = { HANDSHAKE_REQUEST, 0, 0, 0, t};
+        sendPacket(request);
+        handshakeCounter = 2000;
+    }
+}
+
+unsigned int delayCounter = 50000;
+void delay() {
+    delayCounter -= 1;
+    if(delayCounter == 0) {
+        delayTemp = 0;
+        BGBPacket request = { DELAY_REQUEST, 0, 0, 0, 0};
+        sendPacket(request);
+        delayCounter = 50000;
+    }
+}
+
+void stopWait() {
+    timerStop(3);
+    nifi.state = PAIRED;
+}
+
+unsigned int syncCounter = 500;
+void sync() {
+    syncCounter -= 1;
+    if(syncCounter == 0) {
+        BGBPacket request = { SYNC_REQUEST, 0, 0, 0, (unsigned int)cyclesTotal};
+        sendPacket(request);
+        nifi.state = WAITING;
+        timerStart(3, ClockDivider_1, nifi.delay/2, stopWait);
+        syncCounter = 500;
+    }
+}
+
+void swap(bool master) {
+    unsigned char type = SWAP_REQUEST;
+    if(!master) type = SWAP_ANSWER;
+    BGBPacket request = { type, ioRam[0x01], 0, 0, (unsigned int)cyclesTotal};
+    sendPacket(request);
+    nifi.state = WAITING;
+}
+
+void tryReset() {
+    int d = (int)(nifi.resetAt - rawTime);
+    printLog("Reset in %ds\n", d);
+    if(d == 0) {
+        nifi.resetAt = 0;
+        resetGameboy();
+    }
+}
+
+int cyclesToWait = 0;
+
+int updateNifi(int cycles) {
+    if(!nifiEnabled) return cycles;
+
+    if(nifi.state == SWAP) {
+        printLog("S: %d R: %02x\n", ioRam[0x01], nifi.pairBuffer);
+        ioRam[0x01] = nifi.pairBuffer;
+        ioRam[0x02] &= ~0x80;
+        requestInterrupt(SERIAL);
+        nifi.state = WAITING;
+        timerStart(3, ClockDivider_64, 500, stopWait);
+        return 0;
+    } else if(nifi.state == WAITING) {
+        return 0;
+    } else if(nifi.state == ALONE) {
+        handshake();
+    } else {
+        if(nifi.resetAt != 0) {
+            tryReset();
+            return cycles;
+        }
+        delay();
+        sync();
+
+        if(nifi.pairTotalCycles != 0 && cyclesTotal > nifi.pairTotalCycles) {
+            cyclesToWait = cyclesTotal - nifi.pairTotalCycles;
+            nifi.pairTotalCycles = 0;
+        }
+
+        if(cyclesToWait > 0) {
+            if(cyclesToWait >= cycles) {
+                cyclesToWait = cyclesToWait - cycles;
+                return 0;
+            } else {
+                cyclesToWait = 0;
+                return cycles - cyclesToWait;
+            }
+        }
+    }
+
+    return cycles;
+}
+
+void handleHandshake(BGBPacket packet) {
+    nifi.resetAt = rawTime | packet.i1;
+    nifi.state = PAIRED;
+}
+
+void handleSwap(BGBPacket packet) {
+    nifi.pairTotalCycles = packet.i1;
+    nifi.pairBuffer = packet.b2;
+    nifi.state = SWAP;
+}
+
+void handleSwapRequest(BGBPacket packet) {
+    swap(false);
+    handleSwap(packet);
 }
 
 void packetHandler(int packetID, int readlength)
@@ -73,81 +205,37 @@ void packetHandler(int packetID, int readlength)
 
     switch (packet.b1)
     {
-        case ACK:
+        case HANDSHAKE_REQUEST:
             {
-                if(nifiPairState == PAIR_PAIRING) {
-                    //nifiDelay now stores the delay in real time between the two GB
-                    stopTimer(2);
-                    stopTimer(3);
-                    unsigned int restartAt = packet.i1;
-                    nifiPairRestartAt = rawTime | restartAt;
-                    nifiPairState = PAIR_PAIRED;
-                    nifiUpdateCounter = PAIR_COUNTER;
-                    printLog("Reset scheduled\n");
-                } else if(nifiPairState == PAIR_SYNCING) {
-                    //nifiDelay now stores the delay in real time between the two GB
-                    stopTimer(2);
-                    stopTimer(3);
-                    nifiPairState = PAIR_PAIRED;
-                    nifiUpdateCounter = PAIR_COUNTER;
-                }
+                BGBPacket response = { HANDSHAKE_RESPONSE, 0, 0, 0, packet.i1};
+                sendPacket(response);
+            }
+        case HANDSHAKE_RESPONSE:
+            nifi.delay = delayTemp;
+            handleHandshake(packet);
+            break;
+        case DELAY_REQUEST:
+            {
+                BGBPacket response = { DELAY_RESPONSE, 0, 0, 0, 0};
+                sendPacket(response); 
                 break;
             }
+        case DELAY_RESPONSE:
+            nifi.delay = delayTemp;
+            //printLog("Delay %d ticks\n", nifi.delay);
+            break;
+        case SYNC_REQUEST:
+            nifi.pairTotalCycles = (int)packet.i1;
+            break;
+        case SWAP_REQUEST:
+            handleSwapRequest(packet);
+            break;
+        case SWAP_ANSWER:
+            handleSwap(packet);
+            break;
     default:
         break;
     }
-}
-
-void cancelPairing() {
-    nifiPairState = PAIR_NO;
-    nifiUpdateCounter = PAIR_COUNTER;
-}
-
-void sendSync0() {
-    nifiDelay = 0;
-    unsigned int restartAt = (rawTime & 0xFFFFFFFF) + 10;
-    BGBPacket sync0 = {SYNC0, 0, 0, 0, restartAt};
-    sendPacket(sync0);
-    nifiPairState = PAIR_PAIRING;
-    timerStart(2, ClockDivider_1024, 5, cancelPairing);
-    timerStart(3, ClockDivider_1, 1, delayTick);
-}
-
-void cancelSyncing() {
-    nifiPairState = PAIR_PAIRED;
-    nifiUpdateCounter = PAIR_COUNTER;
-}
-
-void sendSync1() {
-    nifiDelay = 0;
-    BGBPacket sync1 = {SYNC1, 0, 0, 0, cyclesTotal};
-    sendPacket(sync1);
-    nifiPairState = PAIR_SYNCING;
-    timerStart(2, ClockDivider_1024, 5, cancelSyncing);
-    timerStart(3, ClockDivider_1, 1, delayTick);
-}
-
-void updateNifi() {
-    // regular ping to check for pair
-    if(nifiPairState == PAIR_NO) {
-        nifiUpdateCounter -= 1;
-        if(nifiUpdateCounter == 0) {
-            sendSync0();
-        }
-    } else if(nifiPairState == PAIR_PAIRED) { // if paired and reset scheduled, we check if it is time
-        if(rawTime == nifiPairRestartAt) { // if it is, we reset
-            resetGameboy();
-            nifiPairRestartAt = 0;
-            printLog("Resetting\n");
-        }
-        // regular send cycleTotal to pair to maintain sync
-        nifiUpdateCounter -= 1;
-        if(nifiUpdateCounter == 0) {
-            sendSync1();
-        }
-    }
-
-    return true;
 }
 
 void enableNifi()
@@ -170,9 +258,7 @@ void enableNifi()
 	Wifi_RawSetPacketHandler(packetHandler);
 	Wifi_SetChannel(10);
     nifiEnabled = true;
-}
 
-void disableNifi() {
-    Wifi_DisableWifi();
-    nifiEnabled = false;
+    timerStart(2, ClockDivider_1, 1, delayTick);
+
 }

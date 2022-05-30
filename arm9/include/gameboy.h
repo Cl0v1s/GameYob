@@ -10,7 +10,7 @@ extern long periods[4];
 
 extern int doubleSpeed;
 extern int cyclesToEvent;
-extern unsigned int cyclesTotal;
+extern int cyclesTotal;
 
 
 extern bool fastForwardMode;
