@@ -45,6 +45,7 @@ bool sgbMode;
 const int maxWaitCycles=1000000;
 int cyclesToEvent;
 int cyclesSinceVblank=0;
+unsigned int cyclesTotal = 0;
 
 bool resettingGameboy = false;
 
@@ -299,6 +300,8 @@ void runEmul()
         cyclesToEvent = maxWaitCycles;
         extraCycles=0;
 
+        cyclesTotal += cycles << doubleSpeed;
+
         cyclesSinceVblank += cycles;
 
         if (serialCounter > 0) {
@@ -367,6 +370,7 @@ void initLCD()
 
 // Called either from startup, or when the BIOS writes to FF50.
 void initGameboyMode() {
+    cyclesTotal = 0;
     gbRegs.af.b.l = 0xB0;
     gbRegs.bc.w = 0x0013;
     gbRegs.de.w = 0x00D8;

@@ -10,6 +10,8 @@ extern long periods[4];
 
 extern int doubleSpeed;
 extern int cyclesToEvent;
+extern unsigned int cyclesTotal;
+
 
 extern bool fastForwardMode;
 extern bool fastForwardKey;
@@ -24,6 +26,7 @@ extern int cyclesSinceVblank;
 extern bool probingForBorder;
 extern int interruptTriggered;
 extern int gameboyFrameCounter;
+
 
 void setEventCycles(int cycles);
 

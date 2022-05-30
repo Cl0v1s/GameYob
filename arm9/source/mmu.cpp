@@ -799,22 +799,13 @@ void writeIO(u8 ioReg, u8 val)
         case 0x02:
             {
                 ioRam[ioReg] = val;
-                if (!nifiEnabled) {
-                    if (val & 0x80 && val & 0x01) {
-                        serialCounter = clockSpeed/1024;
-                        if (cyclesToExecute > serialCounter)
-                            cyclesToExecute = serialCounter;
-                    }
-                    else
-                        serialCounter = 0;
-                    return;
-                } else {
-                    if(val & 0x80) {
-                        if(val & 0x01) {
-                            sendSync1();
-                        }
-                    }
+                if (val & 0x80 && val & 0x01) {
+                    serialCounter = clockSpeed/1024;
+                    if (cyclesToExecute > serialCounter)
+                        cyclesToExecute = serialCounter;
                 }
+                else
+                    serialCounter = 0;
                 return;
             }
         case 0x04:

@@ -15,10 +15,12 @@
 #define SYNC1 104
 #define SYNC2 105
 #define SYNC3 106
+#define ACK 107
 
 #define PAIR_NO 0
 #define PAIR_PAIRING 1
 #define PAIR_PAIRED 2
+#define PAIR_SYNCING 3
 #define PAIR_COUNTER 500
 
 int nifiEnable = false;
@@ -26,6 +28,11 @@ int nifiPairState = PAIR_NO;
 time_t nifiPairRestartAt = 0;
 
 unsigned int nifiUpdateCounter = PAIR_COUNTER;
+unsigned int nifiDelay = 0;
+
+void delayTick() {
+    nifiDelay += 1;
+}
 
 
 struct BGBPacket {
@@ -66,6 +73,26 @@ void packetHandler(int packetID, int readlength)
 
     switch (packet.b1)
     {
+        case ACK:
+            {
+                if(nifiPairState == PAIR_PAIRING) {
+                    //nifiDelay now stores the delay in real time between the two GB
+                    stopTimer(2);
+                    stopTimer(3);
+                    unsigned int restartAt = packet.i1;
+                    nifiPairRestartAt = rawTime | restartAt;
+                    nifiPairState = PAIR_PAIRED;
+                    nifiUpdateCounter = PAIR_COUNTER;
+                    printLog("Reset scheduled\n");
+                } else if(nifiPairState == PAIR_SYNCING) {
+                    //nifiDelay now stores the delay in real time between the two GB
+                    stopTimer(2);
+                    stopTimer(3);
+                    nifiPairState = PAIR_PAIRED;
+                    nifiUpdateCounter = PAIR_COUNTER;
+                }
+                break;
+            }
     default:
         break;
     }
@@ -73,25 +100,54 @@ void packetHandler(int packetID, int readlength)
 
 void cancelPairing() {
     nifiPairState = PAIR_NO;
+    nifiUpdateCounter = PAIR_COUNTER;
 }
 
 void sendSync0() {
-    // other side restartAt = rawTime | receivedRestartAt
-    unsigned int restartAt = (rawTime << (sizeof(time_t) - sizeof(unsigned int))) + 10;
+    nifiDelay = 0;
+    unsigned int restartAt = (rawTime & 0xFFFFFFFF) + 10;
     BGBPacket sync0 = {SYNC0, 0, 0, 0, restartAt};
     sendPacket(sync0);
+    nifiPairState = PAIR_PAIRING;
     timerStart(2, ClockDivider_1024, 5, cancelPairing);
+    timerStart(3, ClockDivider_1, 1, delayTick);
+}
 
+void cancelSyncing() {
+    nifiPairState = PAIR_PAIRED;
+    nifiUpdateCounter = PAIR_COUNTER;
+}
+
+void sendSync1() {
+    nifiDelay = 0;
+    BGBPacket sync1 = {SYNC1, 0, 0, 0, cyclesTotal};
+    sendPacket(sync1);
+    nifiPairState = PAIR_SYNCING;
+    timerStart(2, ClockDivider_1024, 5, cancelSyncing);
+    timerStart(3, ClockDivider_1, 1, delayTick);
 }
 
 void updateNifi() {
+    // regular ping to check for pair
     if(nifiPairState == PAIR_NO) {
         nifiUpdateCounter -= 1;
         if(nifiUpdateCounter == 0) {
             sendSync0();
-            nifiUpdateCounter = PAIR_COUNTER;
+        }
+    } else if(nifiPairState == PAIR_PAIRED) { // if paired and reset scheduled, we check if it is time
+        if(rawTime == nifiPairRestartAt) { // if it is, we reset
+            resetGameboy();
+            nifiPairRestartAt = 0;
+            printLog("Resetting\n");
+        }
+        // regular send cycleTotal to pair to maintain sync
+        nifiUpdateCounter -= 1;
+        if(nifiUpdateCounter == 0) {
+            sendSync1();
         }
     }
+
+    return true;
 }
 
 void enableNifi()
