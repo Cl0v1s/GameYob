@@ -141,12 +141,15 @@ int updateNifi(int cycles) {
                 cyclesToWait = cyclesTotal - nifi.cyclesToSerialTransfer;
                 nifi.cyclesToSerialTransfer = -1;
             }
+
             if(cyclesToWait <= 0) {
                 serial();
             }
         } else {
             if(nifi.cyclesToSerialTransfer > cyclesTotal) {
-                return nifi.cyclesToSerialTransfer - cyclesTotal;
+                int diff = nifi.cyclesToSerialTransfer - cyclesTotal;
+                if(diff > cycles) return cycles;
+                else return cycles - diff;
             } else {
                 serial();
             }
@@ -191,7 +194,7 @@ void handleHandshake(BGBPacket packet) {
 
 void handleSwap(BGBPacket packet) {
     nifi.pairTotalCycles = packet.i1;
-    /*
+
     if(ioRam[0x02] & 0x01) {
         //printLog("Swap as master\n");
         // if we are master and slave is in advance, we ignore the swap
@@ -211,9 +214,8 @@ void handleSwap(BGBPacket packet) {
             nifi.state = PAIRED;
             return;
         };
-    }*/
 
-    nifi.cyclesToSerialTransfer = packet.i1;
+    nifi.cyclesToSerialTransfer = ((int)packet.i1);
     nifi.pairBuffer = packet.b2;
     nifi.state = SWAP;
 }
@@ -264,10 +266,14 @@ void packetHandler(int packetID, int readlength)
             nifi.pairTotalCycles = (int)packet.i1;
             break;
         case SWAP_REQUEST:
-            handleSwapRequest(packet);
+            jf(nifi.state == PAIRED) {
+                handleSwapRequest(packet);
+            }
             break;
         case SWAP_ANSWER:
-            handleSwap(packet);
+            if(nifi.state == WAITING) {
+                handleSwap(packet);
+            }
             break;
     default:
         break;
