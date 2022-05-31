@@ -5,8 +5,9 @@ extern bool nifiEnabled;
 
 
 struct NIFIStruct {
+    unsigned char master;
     unsigned char state;
-    unsigned int delay;
+    int delay;
     time_t resetAt;
     int pairTotalCycles;
     unsigned char pairBuffer;

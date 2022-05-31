@@ -9,10 +9,17 @@
 #include "console.h"
 #include "timer.h"
 
+#define RESET_DELAY 5
+#define GAP 50
+
+#define MASTER 1
+#define SLAVE 2
+
 #define ALONE 0
-#define PAIRED 1
-#define WAITING 2
-#define SWAP 3
+#define PAIRING 1
+#define PAIRED 2
+#define WAITING 3
+#define SWAP 4
 
 #define HANDSHAKE_REQUEST 101
 #define HANDSHAKE_RESPONSE 102
@@ -20,7 +27,7 @@
 #define DELAY_RESPONSE 104
 #define SYNC_REQUEST 105
 #define SWAP_REQUEST 106
-#define SWAP_ANSWER 107
+#define SWAP_RESPONSE 107
 
 // timerStart(2, ClockDivider_64, 10000, timeout);
 
@@ -36,7 +43,7 @@ struct BGBPacket {
     unsigned int i1;
 };
 
-NIFIStruct nifi = { ALONE, 0, 0, 0,0 , 0,  -1};
+NIFIStruct nifi = { 0, ALONE, 0, 0, 0,0 , 0,  -1};
 
 void sendPacket(BGBPacket packet) {
     int size = 5+sizeof(unsigned int);
@@ -56,21 +63,19 @@ void disableNifi() {
 }
 
 // =====================================================================
-unsigned int delayTemp = 0;
-void delayTick() {
-    delayTemp += 1;
-}
-
+int delayTemp = 0;
 
 unsigned int handshakeCounter = 2000;
 void handshake() {
     handshakeCounter -= 1;
     if(handshakeCounter == 0) {
+        handshakeCounter = 2000;
+        unsigned int t = ((rawTime + RESET_DELAY) & 0xFFFFFFFF);
+        if((int)(t - rawTime) != RESET_DELAY) return;
+
         delayTemp = 0;
-        unsigned int t = (rawTime | 0xFFFFFFFF) + 10;
         BGBPacket request = { HANDSHAKE_REQUEST, 0, 0, 0, t};
         sendPacket(request);
-        handshakeCounter = 2000;
     }
 }
 
@@ -85,26 +90,19 @@ void delay() {
     }
 }
 
-void stopWait() {
-    timerStop(3);
-    nifi.state = PAIRED;
-}
-
 unsigned int syncCounter = 500;
 void sync() {
     syncCounter -= 1;
     if(syncCounter == 0) {
         BGBPacket request = { SYNC_REQUEST, 0, 0, 0, (unsigned int)cyclesTotal};
         sendPacket(request);
-        nifi.state = WAITING;
-        timerStart(3, ClockDivider_1, nifi.delay/2, stopWait);
         syncCounter = 500;
     }
 }
 
 void swap(bool master) {
     unsigned char type = SWAP_REQUEST;
-    if(!master) type = SWAP_ANSWER;
+    if(!master) type = SWAP_RESPONSE;
     //printLog("Sending %02x\n", nifi.selfBuffer);
     BGBPacket request = { type, nifi.selfBuffer, 0, 0, (unsigned int)cyclesTotal};
     sendPacket(request);
@@ -123,106 +121,131 @@ void serial() {
 
 void tryReset() {
     int d = (int)(nifi.resetAt - rawTime);
-    printLog("Reset in %ds\n", d);
+    //printLog("Reset in %ds\n", d);
     if(d == 0) {
+        printLog("Reseting as %u\n", nifi.master);
         nifi.resetAt = 0;
         resetGameboy();
     }
 }
 
 int cyclesToWait = 0;
+void manageWait() {
+    if(nifi.pairTotalCycles == 0 ) return;
+    //printLog("Diff %d\n", abs(cyclesTotal - nifi.pairTotalCycles));
+    if(nifi.master == MASTER) {
+        if(cyclesTotal >= nifi.pairTotalCycles + nifi.delay + GAP) {
+            cyclesToWait = cyclesTotal - nifi.pairTotalCycles + GAP;
+            printLog("Master waiting %d cycles\n", cyclesToWait);
+        }
+    } else {
+        if(cyclesTotal >= nifi.pairTotalCycles - nifi.delay - GAP) {
+            cyclesToWait = cyclesTotal - nifi.pairTotalCycles + GAP;
+            printLog("Slave waiting %d cycles\n", cyclesToWait);
+        }
+    }
+    nifi.pairTotalCycles = 0;
+}
+
 
 int updateNifi(int cycles) {
     if(!nifiEnabled) return cycles;
 
-    if(nifi.state == SWAP) {
-        if(ioRam[0x02] & 0x01) {
-            if(nifi.cyclesToSerialTransfer != -1) {
-                cyclesToWait = cyclesTotal - nifi.cyclesToSerialTransfer;
-                nifi.cyclesToSerialTransfer = -1;
-            }
 
-            if(cyclesToWait <= 0) {
-                serial();
-            }
-        } else {
-            if(nifi.cyclesToSerialTransfer > cyclesTotal) {
-                int diff = nifi.cyclesToSerialTransfer - cyclesTotal;
-                if(diff > cycles) return cycles;
-                else return cycles - diff;
-            } else {
-                serial();
-            }
-        }
-    } else if(nifi.state == WAITING) {
-        return 0;
+
+    if(nifi.state == WAITING) {
+        cycles = 0;
     } else if(nifi.state == ALONE) {
         handshake();
-    } else {
+    } else if(nifi.state == SWAP) {
+        printLog("%d cycles before serial\n", nifi.cyclesToSerialTransfer);
+        if(nifi.cyclesToSerialTransfer <= 0) {
+            BGBPacket request = { SWAP_RESPONSE, nifi.selfBuffer, 0, 0, (unsigned int)cyclesTotal};
+            sendPacket(request);
+            serial();
+            return 0;
+        }
+
+        if(cycles > nifi.cyclesToSerialTransfer)  {
+            cycles = cycles - nifi.cyclesToSerialTransfer;
+            nifi.cyclesToSerialTransfer = 0;
+        } else {
+            nifi.cyclesToSerialTransfer = nifi.cyclesToSerialTransfer - cycles;
+        }
+    } else if (nifi.state == PAIRING) {
         if(nifi.resetAt != 0) {
             tryReset();
             return cycles;
         }
+        if(cyclesTotal == 0) {
+            nifi.state = PAIRED;
+            return 0;
+        }
+    } else {
+        if(nifi.master == SLAVE) cycles = 1;
         delay();
         sync();
-
-        if(nifi.pairTotalCycles != 0 && cyclesTotal > nifi.pairTotalCycles) {
-            cyclesToWait = cyclesTotal - nifi.pairTotalCycles;
-            nifi.pairTotalCycles = 0;
-        }
+        manageWait();
     }
 
     if(cyclesToWait > 0) {
         if(cyclesToWait >= cycles) {
             cyclesToWait = cyclesToWait - cycles;
-            return 0;
+            cycles = 0;
         } else {
             cyclesToWait = 0;
-            return cycles - cyclesToWait;
+            cycles = cycles - cyclesToWait;
         }
     }
 
-
+    delayTemp += cycles;
 
     return cycles;
 }
 
-void handleHandshake(BGBPacket packet) {
-    nifi.resetAt = rawTime | packet.i1;
-    nifi.state = PAIRED;
+void handleHandshake(BGBPacket packet, unsigned char master) {
+    time_t resetAt = rawTime | packet.i1;
+    int d = (int)(resetAt - rawTime);
+    if(d < 0) return;
+
+    printLog("Reset in %ds\n", d);
+    nifi.state = PAIRING;
+    nifi.master = master;
+    if(master == MASTER) { 
+        printLog("Master\n"); 
+    }
+    else { 
+        printLog("Slave\n"); 
+    }
+    nifi.resetAt = resetAt;
 }
 
-void handleSwap(BGBPacket packet) {
-    nifi.pairTotalCycles = packet.i1;
+void handleSwapResponse(BGBPacket packet) {
+    nifi.pairTotalCycles = ((int)packet.i1);
+    if(nifi.pairTotalCycles > cyclesTotal) {
+        printLog("Canceled %d\n", (int)(nifi.pairTotalCycles - cyclesTotal));
+        nifi.pairBuffer = 0xFF;
+        serial();
+        return;
+    };
 
-    if(ioRam[0x02] & 0x01) {
-        //printLog("Swap as master\n");
-        // if we are master and slave is in advance, we ignore the swap
-        if(nifi.pairTotalCycles > cyclesTotal) {
-            printLog("Canceled %d\n", (int)(nifi.pairTotalCycles - cyclesTotal));
-            ioRam[0x01] = 0xFF;
-            ioRam[0x02] &= ~0x80;
-            requestInterrupt(SERIAL);
-            nifi.state = PAIRED;
-            return;
-        }
-    } else {
-        //printLog("Swap as slave\n");
-        // if we are slave and master is too late, we ignore the swap
-        if(nifi.pairTotalCycles < cyclesTotal) {
-            printLog("Canceled %d\n", (int)(cyclesTotal - nifi.pairTotalCycles));
-            nifi.state = PAIRED;
-            return;
-        };
-
-    nifi.cyclesToSerialTransfer = ((int)packet.i1);
     nifi.pairBuffer = packet.b2;
-    nifi.state = SWAP;
+    serial();
 }
 
 void handleSwapRequest(BGBPacket packet) {
-    swap(false);
-    handleSwap(packet);
+    nifi.pairTotalCycles = ((int)packet.i1);
+    // if we are slave and master is too late, we ignore the swap
+    if(nifi.pairTotalCycles < cyclesTotal) {
+        printLog("Canceled %d\n", (int)(cyclesTotal - nifi.pairTotalCycles));
+        nifi.state = PAIRED;
+        return;
+    };
+
+    nifi.cyclesToSerialTransfer = nifi.pairTotalCycles - cyclesTotal;
+
+    nifi.pairBuffer = packet.b2;
+    nifi.state = SWAP;
 }
 
 void packetHandler(int packetID, int readlength)
@@ -245,12 +268,15 @@ void packetHandler(int packetID, int readlength)
     {
         case HANDSHAKE_REQUEST:
             {
+                if(nifi.master != 0) return;
                 BGBPacket response = { HANDSHAKE_RESPONSE, 0, 0, 0, packet.i1};
                 sendPacket(response);
+                handleHandshake(packet, SLAVE);
             }
         case HANDSHAKE_RESPONSE:
+            if(nifi.master != 0) return;
             nifi.delay = delayTemp;
-            handleHandshake(packet);
+            handleHandshake(packet, MASTER);
             break;
         case DELAY_REQUEST:
             {
@@ -259,21 +285,17 @@ void packetHandler(int packetID, int readlength)
                 break;
             }
         case DELAY_RESPONSE:
-            nifi.delay = delayTemp;
-            //printLog("Delay %d ticks\n", nifi.delay);
+            nifi.delay = (nifi.delay + delayTemp) / 2;
+            //printLog("Delay %d cycles mean\n", nifi.delay);
             break;
         case SYNC_REQUEST:
-            nifi.pairTotalCycles = (int)packet.i1;
+            nifi.pairTotalCycles = ((int)packet.i1);
             break;
         case SWAP_REQUEST:
-            jf(nifi.state == PAIRED) {
-                handleSwapRequest(packet);
-            }
+            handleSwapRequest(packet);
             break;
-        case SWAP_ANSWER:
-            if(nifi.state == WAITING) {
-                handleSwap(packet);
-            }
+        case SWAP_RESPONSE:
+            handleSwapResponse(packet);
             break;
     default:
         break;
@@ -300,7 +322,4 @@ void enableNifi()
 	Wifi_RawSetPacketHandler(packetHandler);
 	Wifi_SetChannel(10);
     nifiEnabled = true;
-
-    timerStart(2, ClockDivider_1, 1, delayTick);
-
 }
