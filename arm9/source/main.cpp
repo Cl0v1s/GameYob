@@ -74,11 +74,7 @@ void selectRom() {
         }
     }
 
-    if(filename == 0) {
-        loadRomFromROM();
-    } else {
-        loadRom(filename);
-    }
+    loadRom(filename);
     free(filename);
 
     updateScreens();
