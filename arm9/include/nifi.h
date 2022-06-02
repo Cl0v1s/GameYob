@@ -12,7 +12,7 @@ struct NIFIStruct {
     int pairTotalCycles;
     unsigned char pairBuffer;
     unsigned char selfBuffer;
-    int cyclesToSerialTransfer;
+    int cyclesSerialTransfer;
 };
 
 extern NIFIStruct nifi;
@@ -26,4 +26,4 @@ void updateBuffer(unsigned char data);
 bool applyTransfer();
 void timeout();
 void waitTransfer();
-void swap(bool master);
+void askSerial();

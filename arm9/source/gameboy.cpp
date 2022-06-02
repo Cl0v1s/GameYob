@@ -290,6 +290,7 @@ void runEmul()
             cycles = cyclesToEvent;
         else
             cycles = runOpcode(updateNifi(cyclesToEvent));
+        cyclesTotal += cycles >> doubleSpeed;
 
         bool opTriggeredInterrupt = cyclesToExecute == -1;
         cyclesToExecute = -1;
@@ -301,7 +302,6 @@ void runEmul()
 
 
         cyclesSinceVblank += cycles;
-        cyclesTotal += cycles >> doubleSpeed;
 
 
         if (serialCounter > 0) {
@@ -311,7 +311,7 @@ void runEmul()
                 if(!nifiEnabled) {
                     ioRam[0x01] = 0xFF;
                 } else {
-                    swap(true);
+                    askSerial();
                 }
             }
             else

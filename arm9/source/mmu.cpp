@@ -803,7 +803,7 @@ void writeIO(u8 ioReg, u8 val)
         case 0x02:
             {
                 ioRam[ioReg] = val;
-                if (val & 0x80 && val & 0x01) {
+                if (val & 0x81 && val & 0x01) {
                     serialCounter = clockSpeed/1024;
                     if (cyclesToExecute > serialCounter)
                         cyclesToExecute = serialCounter;
