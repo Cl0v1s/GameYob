@@ -290,7 +290,6 @@ void runEmul()
             cycles = cyclesToEvent;
         else
             cycles = runOpcode(updateNifi(cyclesToEvent));
-        cyclesTotal += cycles >> doubleSpeed;
 
         bool opTriggeredInterrupt = cyclesToExecute == -1;
         cyclesToExecute = -1;
@@ -302,6 +301,7 @@ void runEmul()
 
 
         cyclesSinceVblank += cycles;
+        cyclesTotal += cycles >> doubleSpeed;
 
 
         if (serialCounter > 0) {
