@@ -8,6 +8,7 @@
 #include "gbcpu.h"
 #include "console.h"
 
+
 #define SYNC1 104
 #define SYNC2 105
 #define SYNC3 106
@@ -17,18 +18,18 @@
 #define TRANSFER_READY 2
 
 #define CLOCK_TICKS 15
-#define WAITING_MIN 55535/CLOCK_TICKS
+
+#define RESET_NIFI { NO_TRANSFER, 0xFF, 0, 0 }
 
 bool nifiEnabled = true;
-bool nifiReady = false;
 unsigned char macId;
 
-int receivedData = -1;
-int transferState = NO_TRANSFER;
+NIFI nifi = RESET_NIFI;
 
-unsigned int lastClockPing = 0;
-unsigned int uclock = 0;
-unsigned int clockDiff = 0;
+/**
+ * @brief Packet management
+ * 
+ */
 
 struct BGBPacket {
     unsigned char b1;
@@ -38,80 +39,97 @@ struct BGBPacket {
     unsigned int i1;
 };
 
+void sendPacket(BGBPacket packet) {
+    int size = 2+5+sizeof(unsigned int);
+    unsigned char buffer[size];
+    buffer[0] = 'Y';
+    buffer[1] = 'O';
+    buffer[2] = macId;
+    buffer[3] = packet.b1;
+    buffer[4] = packet.b2;
+    buffer[5] = packet.b3;
+    buffer[6] = packet.b4;
+    *((unsigned int*)(buffer+7)) = packet.i1;
+    Wifi_RawTxFrame(size, 0x000A, (unsigned short *)buffer);
+}
+
+/**
+ * @brief Clock management
+ * 
+ */
+
+unsigned int lastClockPing = 0;
 void clockTick() {
-    uclock += 1;
+    nifi.clock += 1;
     // if uclock overflow
-    if(uclock == 0) {
+    if(nifi.clock == 0) {
         lastClockPing = 0;
     }
 }
 
-void setTransferState(int state) {
-    if(state != transferState) {
-        cyclesToExecute = -1;
+bool clockUpdate() {
+    if(nifi.clock >= lastClockPing + 500) {
+        lastClockPing = nifi.clock;
+        return true;
     }
+    return false;
+}
 
-    if(state == TRANSER_WAIT) {
-        // we stop clock when we are waiting
-        timerStop(3);
-        timerStart(2, ClockDivider_64, 10000, timeout);
-    } else {
-        timerStop(2);
-        timerStart(3, ClockDivider_1, CLOCK_TICKS, clockTick);
-    }
+void clockStart() {
+    // start an aproximatively 2Mhz clock
+    timerStart(2, ClockDivider_1, CLOCK_TICKS, clockTick);
+}
 
-    /*if(state == NO_TRANSFER) {
-        receivedData = -1;
-        timerStop(2);
-    }
-    if(transferState == NO_TRANSFER && state != NO_TRANSFER){
-        timerStart(2, ClockDivider_64, 10000, timeout);
-    }
-    */
-    // printLog("Going into %d\n", state);
-    transferState = state;
+void clockStop() {
+    timerStop(2);
 }
 
 
+/**
+ * @brief Protocol
+ * 
+ */
 
 void timeout() {
-    printLog("Transfer Timeout\n");
-    receivedData = 0xFF;
-    setTransferState(TRANSFER_READY);
+    nifi.state = TRANSFER_READY;
+    nifi.pairBuffer = 0xFF;
+    timerStop(3);
 }
 
-void sendPacket(BGBPacket packet) {
-    int size = 5+sizeof(unsigned int);
-    unsigned char buffer[size];
-    buffer[0] = macId;
-    buffer[1] = packet.b1;
-    buffer[2] = packet.b2;
-    buffer[3] = packet.b3;
-    buffer[4] = packet.b4;
-    *((unsigned int*)(buffer+5)) = packet.i1;
-    Wifi_RawTxFrame(size, 0x000A, (unsigned short *)buffer);
+void setTransferState(unsigned char state) {
+    if(state == TRANSER_WAIT && nifi.state != TRANSER_WAIT) {
+        clockStop();
+        timerStart(3, ClockDivider_64, 5000, timeout); // 3 sec timeout
+    }
+    if(state != TRANSER_WAIT) {
+        timerStop(3);
+    }
+
+    nifi.state = state;
+}
+
+void setTransferReady() {
+    setTransferState(TRANSFER_READY);
+    clockStop();
+    clockStart();
 }
 
 void sendSync1() {
     setTransferState(TRANSER_WAIT);
-    BGBPacket sync1 = { SYNC1, ioRam[0x01], ioRam[0x02], 0, uclock };
+    BGBPacket sync1 = { SYNC1, nifi.selfBuffer, ioRam[0x02], 0, nifi.clock };
     sendPacket(sync1);
 }
 
 void sendSync2() {
     //printLog("Send SYNC2\n");
-    BGBPacket sync2 = { SYNC2, ioRam[0x01], 0x80, 0, 0 };
+    BGBPacket sync2 = { SYNC2, nifi.selfBuffer, 0x80, 0, 0 };
     sendPacket(sync2);
 }
 
 void sendSync3() {
     //printLog("Send SYNC3\n");
-    BGBPacket sync3 = { SYNC3, 42, 42, 42, uclock};
+    BGBPacket sync3 = { SYNC3, 0, 42, 42, nifi.clock};
     sendPacket(sync3);
-}
-
-void setTransferReady() {
-    setTransferState(TRANSFER_READY);
 }
 
 void packetHandler(int packetID, int readlength)
@@ -119,52 +137,52 @@ void packetHandler(int packetID, int readlength)
     static char data[4096];
 	Wifi_RxRawReadPacket(packetID, readlength, (unsigned short *)data);
     // we ignore packets coming from us
-    if (data[32] == macId) {
+    if (data[32] != 'Y' || data[33] != 'O' || data[34] == macId) {
         return;
     }
 
     BGBPacket packet;
-    packet.b1 = data[33];
-    packet.b2 = data[34];
-    packet.b3 = data[35];
-    packet.b4 = data[36];
-    packet.i1 = *((unsigned int*)(data+37));
+    packet.b1 = data[35];
+    packet.b2 = data[36];
+    packet.b3 = data[37];
+    packet.b4 = data[38];
+    packet.i1 = *((unsigned int*)(data+39));
 
     switch (packet.b1)
     {
    case SYNC1:
         {
-            setTransferState(TRANSER_WAIT);
-            receivedData = packet.b2;
-
             sendSync2();
+            setTransferState(TRANSER_WAIT);
+            nifi.pairBuffer = packet.b2;
+
 
             // managing clockDiff
             unsigned int tempDiff;
-            if(packet.i1 > uclock) {
-                tempDiff = packet.i1 - uclock;
+            if(packet.i1 > nifi.clock) {
+                tempDiff = packet.i1 - nifi.clock;
             } else {
-                tempDiff = uclock - packet.i1;
+                tempDiff = nifi.clock - packet.i1;
             }
             unsigned int waitingTime;
-            if(tempDiff > clockDiff) waitingTime = tempDiff - clockDiff;
-            else waitingTime = clockDiff - tempDiff;
+            if(tempDiff > nifi.clockDiff) waitingTime = tempDiff - nifi.clockDiff;
+            else waitingTime = nifi.clockDiff - tempDiff;
 
-            timerStart(3, ClockDivider_1, CLOCK_TICKS * (waitingTime + WAITING_MIN), setTransferReady);
+            timerStart(2, ClockDivider_1, CLOCK_TICKS * (waitingTime + 1), setTransferReady);
             break;
         }
     case SYNC2:
-        receivedData = packet.b2;
-        timerStart(3, ClockDivider_1, CLOCK_TICKS * (WAITING_MIN), setTransferReady);
+        nifi.pairBuffer = packet.b2;
+        timerStart(2, ClockDivider_1, CLOCK_TICKS, setTransferReady);
     break;
    case SYNC3:
         {
-            if(packet.i1 > uclock) {
-                clockDiff = packet.i1 - uclock;
+            if(packet.i1 > nifi.clock) {
+                nifi.clockDiff = packet.i1 - nifi.clock;
             } else {
-                clockDiff = uclock - packet.i1;
+                nifi.clockDiff = nifi.clock - packet.i1;
             }
-            //printLog("ClockDiff set at %u\n", clockDiff);
+            printLog("ClockDiff: %d\n", nifi.clockDiff);
             break;
         }
     default:
@@ -172,32 +190,31 @@ void packetHandler(int packetID, int readlength)
     }
 }
 
-bool updateNifi() {
-    if(!nifiEnabled) return true;
+int cyclesWithNifi(int cycles) {
+    if(!nifiEnabled) return cycles;
 
-    if(transferState != NO_TRANSFER && transferState != TRANSFER_READY) return false;
+    if(nifi.state != NO_TRANSFER && nifi.state != TRANSFER_READY) return 0;
+    if(clockUpdate()) sendSync3();
 
-    // update clockDiff between other and us
-    if(uclock > lastClockPing + 100) {
-        sendSync3();
-        lastClockPing = uclock;
-    }
-
-    return true;
+    return cycles;
 }
 
-bool applyTransfer() {
-    if(receivedData == -1 || transferState != TRANSFER_READY) return false;
-    printLog("S:0x%02x R:0x%02x\n", ioRam[0x01], receivedData & 0xFF);
-    ioRam[0x01] = receivedData & 0xFF;
+void applyNifi() {
+    if(nifi.state != TRANSFER_READY) return;
+    printLog("S:0x%02x R:0x%02x\n", nifi.selfBuffer, nifi.pairBuffer);
+    ioRam[0x01] = nifi.pairBuffer;
     requestInterrupt(SERIAL);
     ioRam[0x02] &= ~0x80;
-    receivedData = -1;
+    nifi.pairBuffer = 0xFF;
     setTransferState(NO_TRANSFER);
-    return true;
 }
 
 
+
+/**
+ * @brief Legacy enable / disable 
+ * 
+ */
 void enableNifi()
 {
 	Wifi_InitDefault(false);
@@ -218,15 +235,13 @@ void enableNifi()
 	Wifi_RawSetPacketHandler(packetHandler);
 	Wifi_SetChannel(10);
     nifiEnabled = true;
-    timerStart(3, ClockDivider_1, 10, clockTick);
+
+    clockStart();
+    nifi = RESET_NIFI;
 }
 
 void disableNifi() {
     Wifi_DisableWifi();
     nifiEnabled = false;
-    nifiReady = false;
-    setTransferState(NO_TRANSFER);
-    timerStop(3);
-    // timerStop(2);
-    // receivedData = -1;
+    clockStop();
 }

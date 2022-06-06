@@ -2,14 +2,21 @@
 
 // Don't write directly
 extern bool nifiEnabled;
-extern int transferState;
+
+struct NIFI {
+    unsigned char state;
+    unsigned char pairBuffer;
+    unsigned char selfBuffer;
+
+    unsigned int clock;
+    unsigned int clockDiff;
+};
+
+extern NIFI nifi;
+
 
 void enableNifi();
 void disableNifi();
-bool updateNifi();
 void sendSync1();
-void sendSync2();
-void updateBuffer(unsigned char data);
-bool applyTransfer();
-void timeout();
-void waitTransfer();
+int cyclesWithNifi(int cycles);
+void applyNifi();

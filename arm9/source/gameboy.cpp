@@ -283,13 +283,14 @@ void runEmul()
 {
     for (;;)
     {
-        if(!updateNifi()) continue;
         cyclesToEvent -= extraCycles;
         int cycles;
         if (halt)
             cycles = cyclesToEvent;
         else
-            cycles = runOpcode(cyclesToEvent);
+            cycles = runOpcode(
+                cyclesWithNifi(cyclesToEvent)
+            );
 
         bool opTriggeredInterrupt = cyclesToExecute == -1;
         cyclesToExecute = -1;
@@ -310,7 +311,8 @@ void runEmul()
             else
                 setEventCycles(serialCounter);
         }
-        applyTransfer();
+        
+        applyNifi();
 
         updateTimers(cycles);
 
