@@ -1,6 +1,7 @@
 #include <nds.h>
 #include <dswifi9.h>
 #include <time.h>
+#include <climits>
 #include "nifi.h"
 #include "mmu.h"
 #include "main.h"
@@ -9,17 +10,23 @@
 #include "console.h"
 
 
+#define UNDEFINED 0
+#define LEADER 1
+#define FOLLOWER 2
+
 #define SYNC1 104
 #define SYNC2 105
 #define SYNC3 106
+#define SYNC4 107
+#define SYNC5 108
 
 #define NO_TRANSFER 0
-#define TRANSER_WAIT 1
+#define TRANSFER_WAIT 1
 #define TRANSFER_READY 2
 
 #define CLOCK_TICKS 15
 
-#define RESET_NIFI { NO_TRANSFER, 0xFF, 0, 0 }
+#define RESET_NIFI { UNDEFINED, NO_TRANSFER, 0xFF, 0xFF, 0, 0, 0 }
 
 bool nifiEnabled = true;
 unsigned char macId;
@@ -52,84 +59,55 @@ void sendPacket(BGBPacket packet) {
     *((unsigned int*)(buffer+7)) = packet.i1;
     Wifi_RawTxFrame(size, 0x000A, (unsigned short *)buffer);
 }
-
-/**
- * @brief Clock management
- * 
- */
-
-unsigned int lastClockPing = 0;
-void clockTick() {
-    nifi.clock += 1;
-    // if uclock overflow
-    if(nifi.clock == 0) {
-        lastClockPing = 0;
-    }
-}
-
-bool clockUpdate() {
-    if(nifi.clock >= lastClockPing + 500) {
-        lastClockPing = nifi.clock;
-        return true;
-    }
-    return false;
-}
-
-void clockStart() {
-    // start an aproximatively 2Mhz clock
-    timerStart(2, ClockDivider_1, CLOCK_TICKS, clockTick);
-}
-
-void clockStop() {
-    timerStop(2);
-}
-
-
 /**
  * @brief Protocol
  * 
  */
 
 void timeout() {
-    nifi.state = TRANSFER_READY;
-    nifi.pairBuffer = 0xFF;
+    printLog("Timeout\n");
     timerStop(3);
+    nifi.pairBuffer = 0xFF;
+    applyNifi();
 }
 
 void setTransferState(unsigned char state) {
-    if(state == TRANSER_WAIT && nifi.state != TRANSER_WAIT) {
-        clockStop();
-        timerStart(3, ClockDivider_64, 5000, timeout); // 3 sec timeout
+    if(nifi.state != TRANSFER_WAIT && state == TRANSFER_WAIT) {
+        // timerStart(3, ClockDivider_1024, 5, timeout);
+    } else if(state != TRANSFER_WAIT) {
+        //timerStop(3);
     }
-    if(state != TRANSER_WAIT) {
-        timerStop(3);
-    }
-
     nifi.state = state;
 }
 
-void setTransferReady() {
-    setTransferState(TRANSFER_READY);
-    clockStop();
-    clockStart();
-}
-
-void sendSync1() {
-    setTransferState(TRANSER_WAIT);
-    BGBPacket sync1 = { SYNC1, nifi.selfBuffer, ioRam[0x02], 0, nifi.clock };
-    sendPacket(sync1);
+void sendSync1(int when) {
+    if(nifi.type == LEADER) {
+        setTransferState(TRANSFER_WAIT);
+        printLog("Sent transfer request with %02x\n", nifi.selfBuffer);
+        BGBPacket sync1 = { SYNC1, nifi.selfBuffer, ioRam[0x02], 0, nifi.cycles + when };
+        sendPacket(sync1);
+    }
 }
 
 void sendSync2() {
-    //printLog("Send SYNC2\n");
+    //printLog("Response transfer request with %02x\n", nifi.selfBuffer);
     BGBPacket sync2 = { SYNC2, nifi.selfBuffer, 0x80, 0, 0 };
     sendPacket(sync2);
 }
 
 void sendSync3() {
-    //printLog("Send SYNC3\n");
-    BGBPacket sync3 = { SYNC3, 0, 42, 42, nifi.clock};
+    BGBPacket sync3 = { SYNC3, 0, 42, 42, nifi.cycles };
     sendPacket(sync3);
+}
+
+void sendSync4() {
+    BGBPacket sync4 = { SYNC4, 0, 42, 42, 0};
+    sendPacket(sync4);
+}
+
+void sendSync5(unsigned int cycles) {
+    BGBPacket sync5 = { SYNC5, 0, 42, 42, cycles};
+    sendPacket(sync5);
 }
 
 void packetHandler(int packetID, int readlength)
@@ -152,37 +130,35 @@ void packetHandler(int packetID, int readlength)
     {
    case SYNC1:
         {
-            sendSync2();
-            setTransferState(TRANSER_WAIT);
+            nifi.cylesToSerialTransfer = packet.i1;
+            //printLog("Received request for %u\n", nifi.cylesToSerialTransfer - nifi.cycles);
             nifi.pairBuffer = packet.b2;
-
-
-            // managing clockDiff
-            unsigned int tempDiff;
-            if(packet.i1 > nifi.clock) {
-                tempDiff = packet.i1 - nifi.clock;
-            } else {
-                tempDiff = nifi.clock - packet.i1;
-            }
-            unsigned int waitingTime;
-            if(tempDiff > nifi.clockDiff) waitingTime = tempDiff - nifi.clockDiff;
-            else waitingTime = nifi.clockDiff - tempDiff;
-
-            timerStart(2, ClockDivider_1, CLOCK_TICKS * (waitingTime + 1), setTransferReady);
             break;
         }
     case SYNC2:
         nifi.pairBuffer = packet.b2;
-        timerStart(2, ClockDivider_1, CLOCK_TICKS, setTransferReady);
+        setTransferState(TRANSFER_READY);
     break;
    case SYNC3:
         {
-            if(packet.i1 > nifi.clock) {
-                nifi.clockDiff = packet.i1 - nifi.clock;
-            } else {
-                nifi.clockDiff = nifi.clock - packet.i1;
+            nifi.pairCycles = packet.i1;
+            break;
+        }
+    case SYNC4: 
+        {
+            nifi.type = FOLLOWER;
+            sendSync5(packet.i1);
+            printLog("Reset as FOLLOWER\n");
+            resetGameboy();
+            break;
+        }
+    case SYNC5:
+        {
+            if(nifi.type == UNDEFINED) {
+                nifi.type = LEADER;
+                printLog("Reset as LEADER\n");
+                resetGameboy();
             }
-            printLog("ClockDiff: %d\n", nifi.clockDiff);
             break;
         }
     default:
@@ -190,23 +166,91 @@ void packetHandler(int packetID, int readlength)
     }
 }
 
-int cyclesWithNifi(int cycles) {
-    if(!nifiEnabled) return cycles;
+/**
+ * @brief Ping management
+ * 
+ */
+void ping() {
+    //printLog("%u cycles\n", nifi.cycles);
+    if(nifi.type == UNDEFINED) {
+        sendSync4();
+    } else if(nifi.type == LEADER) {
+        sendSync3();
+    }
+}
 
-    if(nifi.state != NO_TRANSFER && nifi.state != TRANSFER_READY) return 0;
-    if(clockUpdate()) sendSync3();
+void pingStart() {
+    timerStart(2, ClockDivider_64, 500, ping);
+}
 
-    return cycles;
+void pingStop() {
+    timerStop(2);
+}
+
+/**
+ * @brief Cycles management
+ */
+void cyclesWithNifi() {
+    if(!nifiEnabled) return;
+    if(nifi.state == TRANSFER_WAIT) {
+        setEventCycles(0);
+        return;
+    }
+
+    // code below is only for follower
+    if(nifi.type == LEADER) return;
+
+    if(nifi.cylesToSerialTransfer > 0) {
+        if(nifi.cylesToSerialTransfer <= nifi.cycles) {
+            sendSync2();
+            applyNifi();
+        } else {
+            // manage max speed so we stay behind the leader
+            unsigned int diff = nifi.cylesToSerialTransfer - nifi.cycles;
+            if(diff > INT_MAX) {
+                diff = INT_MAX;
+            }
+            setEventCycles((int)diff);
+        }
+    } else if(nifi.pairCycles > 0) {
+        // we are too fast
+        if(nifi.pairCycles < nifi.cycles) {
+            // prevent follower from being stuck for too long
+            setEventCycles(0);
+        } else {
+            // manage max speed so we stay behind the leader
+            unsigned int diff = nifi.pairCycles - nifi.cycles;
+            if(diff > INT_MAX) {
+                diff = INT_MAX;
+            }
+            setEventCycles((int)diff);
+        }
+    }
+
+
+}
+
+void waitForNifi() {
+    if(nifi.type == LEADER) {
+        if(nifi.state != TRANSFER_READY) {
+            setTransferState(TRANSFER_WAIT);
+        } else applyNifi();
+    } else {
+        nifi.pairBuffer = 0xFF;
+        applyNifi();
+    }
 }
 
 void applyNifi() {
-    if(nifi.state != TRANSFER_READY) return;
     printLog("S:0x%02x R:0x%02x\n", nifi.selfBuffer, nifi.pairBuffer);
     ioRam[0x01] = nifi.pairBuffer;
     requestInterrupt(SERIAL);
     ioRam[0x02] &= ~0x80;
     nifi.pairBuffer = 0xFF;
+    nifi.selfBuffer = 0xFF;
+    nifi.cylesToSerialTransfer = 0;
     setTransferState(NO_TRANSFER);
+    if(nifi.type == LEADER) sendSync3();
 }
 
 
@@ -235,13 +279,14 @@ void enableNifi()
 	Wifi_RawSetPacketHandler(packetHandler);
 	Wifi_SetChannel(10);
     nifiEnabled = true;
-
-    clockStart();
     nifi = RESET_NIFI;
+    pingStart();
 }
 
 void disableNifi() {
+    printLog("Disabling Nifi\n");
     Wifi_DisableWifi();
     nifiEnabled = false;
-    clockStop();
+    pingStop();
+    //timerStop(3);
 }

@@ -202,6 +202,7 @@ void gameboyUpdateVBlank() {
 		soundUpdateVBlank();
 
 		if (resettingGameboy) {
+            nifi.cycles = 0;
 			initializeGameboy();
 			resettingGameboy = false;
 		}
@@ -284,13 +285,14 @@ void runEmul()
     for (;;)
     {
         cyclesToEvent -= extraCycles;
+
         int cycles;
         if (halt)
             cycles = cyclesToEvent;
         else
-            cycles = runOpcode(
-                cyclesWithNifi(cyclesToEvent)
-            );
+            cycles = runOpcode(cyclesToEvent);
+
+        nifi.cycles += cycles;
 
         bool opTriggeredInterrupt = cyclesToExecute == -1;
         cyclesToExecute = -1;
@@ -306,14 +308,15 @@ void runEmul()
             serialCounter -= cycles;
             if (serialCounter <= 0) {
                 serialCounter = 0;
-                ioRam[0x01] = 0xFF;
+                if(!nifiEnabled) ioRam[0x01] = 0xFF;
+                else waitForNifi();
             }
             else
                 setEventCycles(serialCounter);
         }
-        
-        applyNifi();
 
+        cyclesWithNifi();
+        
         updateTimers(cycles);
 
         soundCycles += cycles>>doubleSpeed;
@@ -363,8 +366,6 @@ void initLCD()
     periods[2] = clockSpeed/65536;
     periods[3] = clockSpeed/16384;
     timerPeriod = periods[0];
-
-    timerStop(2);
 }
 
 // Called either from startup, or when the BIOS writes to FF50.

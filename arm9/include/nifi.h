@@ -4,12 +4,14 @@
 extern bool nifiEnabled;
 
 struct NIFI {
+    unsigned char type;
     unsigned char state;
     unsigned char pairBuffer;
     unsigned char selfBuffer;
 
-    unsigned int clock;
-    unsigned int clockDiff;
+    unsigned int cycles;
+    unsigned int pairCycles;
+    unsigned int cylesToSerialTransfer;
 };
 
 extern NIFI nifi;
@@ -17,6 +19,7 @@ extern NIFI nifi;
 
 void enableNifi();
 void disableNifi();
-void sendSync1();
-int cyclesWithNifi(int cycles);
+void sendSync1(int when);
+void cyclesWithNifi();
 void applyNifi();
+void waitForNifi();
