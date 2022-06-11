@@ -10,6 +10,8 @@
 #include "gbcpu.h"
 #include "console.h"
 #include "timer.h"
+#include "gbgfx.h"
+
 
 
 #define UNDEFINED 0
@@ -77,7 +79,7 @@ void disableRetry() {
 }
 
 void retry() {
-    if(retried == 0 || rawTime == retried) return; // wait 1 sec
+    if(retried == 0 || rawTime - retried < 2) return; // wait 2 sec
     printLog("retry\n");
     sendSync1(0);
     retried = rawTime;
@@ -304,7 +306,7 @@ void enableNifi()
 
     // always wait for Vblank
     originalInterruptWaitMode = interruptWaitMode;
-    vblankWaitFunc(1);
+    interruptWaitMode = 1;
 }
 
 void disableNifi() {
@@ -312,5 +314,5 @@ void disableNifi() {
     Wifi_DisableWifi();
     nifiEnabled = false;
 
-    vblankWaitFunc(originalInterruptWaitMode);
+    interruptWaitMode = originalInterruptWaitMode;
 }
