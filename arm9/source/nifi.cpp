@@ -72,10 +72,10 @@ void retry() {
 
 void setTransferState(unsigned char state) {
     if(nifi.state != TRANSFER_WAIT && state == TRANSFER_WAIT) {
-        timerStop(3);
-        timerStart(3, ClockDivider_1024, 3, retry);
+        timerStop(2);
+        timerStart(2, ClockDivider_1024, 3, retry);
     } else if(state != TRANSFER_WAIT) {
-        timerStop(3);
+        timerStop(2);
     }
     nifi.state = state;
 }
@@ -253,14 +253,16 @@ void applyNifi() {
     ioRam[0x01] = nifi.pairBuffer;
     requestInterrupt(SERIAL);
     ioRam[0x02] &= ~0x80;
-    nifi.pairBuffer = 0xFF;
-    nifi.selfBuffer = 0xFF;
+    // nifi.pairBuffer = 0xFF;
+    // nifi.selfBuffer = 0xFF;
     nifi.cylesToSerialTransfer = 0;
     setTransferState(NO_TRANSFER);
     if(nifi.type == LEADER) sendSync3();
 }
 
-
+void Timer_10ms(void) {
+	Wifi_Timer(10);
+}
 
 /**
  * @brief Legacy enable / disable 
@@ -287,6 +289,17 @@ void enableNifi()
 	Wifi_SetChannel(10);
     nifiEnabled = true;
     nifi = RESET_NIFI;
+
+    if(1) {
+		//for secial configuration for wifi
+		irqDisable(IRQ_TIMER3);
+		irqSet(IRQ_TIMER3, Timer_10ms); // replace timer IRQ
+		// re-set timer3
+		TIMER3_CR = 0;
+		TIMER3_DATA = -(6553 / 5); // 6553.1 * 256 / 5 cycles = ~10ms;
+		TIMER3_CR = 0x00C2; // enable, irq, 1/256 clock
+		irqEnable(IRQ_TIMER3);
+	}
 }
 
 void disableNifi() {
