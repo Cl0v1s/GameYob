@@ -28,9 +28,9 @@
 #define TRANSFER_WAIT 1
 #define TRANSFER_READY 2
 
-#define CLOCK_TICKS 15
-
 #define RESET_NIFI { UNDEFINED, NO_TRANSFER, 0xFF, 0xFF, 0, 0, 0 }
+
+#define STUCK_DELAY USHRT_MAX*20
 
 bool nifiEnabled = true;
 unsigned char macId;
@@ -205,9 +205,25 @@ void ping() {
 /**
  * @brief Cycles management
  */
+unsigned int framestuck = 0;
+unsigned int lastCycles = 0;
+void manageStuck() {
+    if(nifi.cycles != lastCycles) {
+        framestuck = 0;
+    } else {
+        framestuck += 1;
+        if(framestuck >= STUCK_DELAY) {
+            disableNifi();
+            framestuck = 0;
+        }
+    }
+    lastCycles = nifi.cycles;
+}
+
 void cyclesWithNifi() {
     if(!nifiEnabled) return;
 
+    manageStuck();
     if(nifi.state == TRANSFER_WAIT) {
         retry();
         setEventCycles(0);
@@ -216,7 +232,6 @@ void cyclesWithNifi() {
         ping();
     }
 
-    // code below is only for follower
     if(nifi.type == LEADER) return;
 
     if(nifi.cylesToSerialTransfer > 0) {
@@ -246,8 +261,6 @@ void cyclesWithNifi() {
             setEventCycles((int)diff);
         }
     }
-
-
 }
 
 void waitForNifi() {
