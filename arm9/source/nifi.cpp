@@ -77,8 +77,7 @@ void disableRetry() {
 }
 
 void retry() {
-    if(retried == 0) return;
-    if(rawTime - retried < 3) return; // 3sec
+    if(retried == 0 || rawTime == retried) return; // wait 1 sec
     printLog("retry\n");
     sendSync1(0);
     retried = rawTime;
@@ -256,7 +255,7 @@ void waitForNifi() {
         } else applyNifi();
     } else {
         // if we are here, FOLLOWER tried to do a transfer as master
-        // if no transfer is aksed by LEADER, always answer with 0xFF
+        // if no transfer is asked by LEADER, always answer with 0xFF
         if(nifi.cylesToSerialTransfer == 0) {
             nifi.pairBuffer = 0xFF;
             applyNifi();
@@ -275,15 +274,11 @@ void applyNifi() {
     setTransferState(NO_TRANSFER);
     if(nifi.type == LEADER) sendSync3();
 }
-
-void Timer_10ms(void) {
-	Wifi_Timer(10);
-}
-
 /**
  * @brief Legacy enable / disable 
  * 
  */
+int originalInterruptWaitMode = 0;
 void enableNifi()
 {
     wirelessMode = WIRELESS_MODE_NIFI;
@@ -307,11 +302,15 @@ void enableNifi()
     nifiEnabled = true;
     nifi = RESET_NIFI;
 
-
+    // always wait for Vblank
+    originalInterruptWaitMode = interruptWaitMode;
+    vblankWaitFunc(1);
 }
 
 void disableNifi() {
     printLog("Disabling Nifi\n");
     Wifi_DisableWifi();
     nifiEnabled = false;
+
+    vblankWaitFunc(originalInterruptWaitMode);
 }
