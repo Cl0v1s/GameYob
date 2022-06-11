@@ -8,6 +8,7 @@
 #include "gameboy.h"
 #include "gbcpu.h"
 #include "console.h"
+#include "timer.h"
 
 
 #define UNDEFINED 0
@@ -64,19 +65,17 @@ void sendPacket(BGBPacket packet) {
  * 
  */
 
-void timeout() {
-    printLog("Timeout\n");
-    timerStop(3);
-    nifi.pairBuffer = 0xFF;
-    applyNifi();
+void retry() {
+    printLog("retry\n");
+    sendSync1(0);
 }
 
 void setTransferState(unsigned char state) {
     if(nifi.state != TRANSFER_WAIT && state == TRANSFER_WAIT) {
-        printLog("WAITING\n");
-        // timerStart(3, ClockDivider_1024, 5, timeout);
+        timerStop(3);
+        timerStart(3, ClockDivider_1024, 3, retry);
     } else if(state != TRANSFER_WAIT) {
-        //timerStop(3);
+        timerStop(3);
     }
     nifi.state = state;
 }
@@ -174,7 +173,10 @@ void packetHandler(int packetID, int readlength)
  * @brief Ping management
  * 
  */
+time_t lastPing = 0;
 void ping() {
+    if(lastPing == rawTime) return;
+    lastPing = rawTime;
     //printLog("%u cycles\n", nifi.cycles);
     if(nifi.type == UNDEFINED) {
         sendSync4();
@@ -183,23 +185,20 @@ void ping() {
     }
 }
 
-void pingStart() {
-    timerStart(2, ClockDivider_64, 500, ping);
-}
-
-void pingStop() {
-    timerStop(2);
-}
-
 /**
  * @brief Cycles management
  */
 void cyclesWithNifi() {
     if(!nifiEnabled) return;
-    if(nifi.state == TRANSFER_WAIT) {
-        setEventCycles(0);
-        return;
+    ping();
+
+    if(nifi.type == LEADER) {
+        if(nifi.state == TRANSFER_WAIT) {
+            setEventCycles(0);
+            return;
+        }
     }
+
 
     // code below is only for follower
     if(nifi.type == LEADER) return;
@@ -288,13 +287,10 @@ void enableNifi()
 	Wifi_SetChannel(10);
     nifiEnabled = true;
     nifi = RESET_NIFI;
-    pingStart();
 }
 
 void disableNifi() {
     printLog("Disabling Nifi\n");
     Wifi_DisableWifi();
     nifiEnabled = false;
-    pingStop();
-    //timerStop(3);
 }
