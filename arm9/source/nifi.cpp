@@ -1,5 +1,6 @@
 #include <nds.h>
 #include <dswifi9.h>
+#include "dsgmDSWiFi.h"
 #include <time.h>
 #include <climits>
 #include "nifi.h"
@@ -58,24 +59,36 @@ void sendPacket(BGBPacket packet) {
     buffer[5] = packet.b3;
     buffer[6] = packet.b4;
     *((unsigned int*)(buffer+7)) = packet.i1;
-    Wifi_RawTxFrame(size, 0x000A, (unsigned short *)buffer);
+    Wifi_RawTxFrame(size, 0x0014, (unsigned short *)buffer);
 }
 /**
  * @brief Protocol
  * 
  */
 
+time_t retried = 0;
+
+void enableRetry() {
+    retried = rawTime;
+}
+
+void disableRetry() {
+    retried = 0;
+}
+
 void retry() {
+    if(retried == 0) return;
+    if(rawTime - retried < 3) return; // 3sec
     printLog("retry\n");
     sendSync1(0);
+    retried = rawTime;
 }
 
 void setTransferState(unsigned char state) {
     if(nifi.state != TRANSFER_WAIT && state == TRANSFER_WAIT) {
-        timerStop(2);
-        timerStart(2, ClockDivider_1024, 3, retry);
+        enableRetry();
     } else if(state != TRANSFER_WAIT) {
-        timerStop(2);
+        disableRetry();
     }
     nifi.state = state;
 }
@@ -131,12 +144,13 @@ void packetHandler(int packetID, int readlength)
    case SYNC1:
         {
             nifi.cylesToSerialTransfer = packet.i1;
-            printLog("Received request for %u\n", nifi.cylesToSerialTransfer - nifi.cycles);
+            // printLog("Received request for %u\n", nifi.cylesToSerialTransfer - nifi.cycles);
             nifi.pairBuffer = packet.b2;
             break;
         }
     case SYNC2:
         nifi.pairBuffer = packet.b2;
+        disableRetry();
         setTransferState(TRANSFER_READY);
     break;
    case SYNC3:
@@ -150,6 +164,7 @@ void packetHandler(int packetID, int readlength)
             nifi.cycles = 0;
             nifi.pairCycles = 0;
             nifi.cylesToSerialTransfer = 0;
+            disableRetry();
             sendSync5(packet.i1);
             printLog("Reset as FOLLOWER\n");
             resetGameboy();
@@ -159,6 +174,7 @@ void packetHandler(int packetID, int readlength)
         {
             if(nifi.type == UNDEFINED) {
                 nifi.type = LEADER;
+                disableRetry();
                 printLog("Reset as LEADER\n");
                 resetGameboy();
             }
@@ -190,15 +206,14 @@ void ping() {
  */
 void cyclesWithNifi() {
     if(!nifiEnabled) return;
-    ping();
 
-    if(nifi.type == LEADER) {
-        if(nifi.state == TRANSFER_WAIT) {
-            setEventCycles(0);
-            return;
-        }
+    if(nifi.state == TRANSFER_WAIT) {
+        retry();
+        setEventCycles(0);
+        return;
+    } else {
+        ping();
     }
-
 
     // code below is only for follower
     if(nifi.type == LEADER) return;
@@ -207,6 +222,7 @@ void cyclesWithNifi() {
         if(nifi.cylesToSerialTransfer <= nifi.cycles) {
             sendSync2();
             applyNifi();
+            setEventCycles(0);
         } else {
             // manage max speed so we stay behind the leader
             unsigned int diff = nifi.cylesToSerialTransfer - nifi.cycles;
@@ -270,9 +286,9 @@ void Timer_10ms(void) {
  */
 void enableNifi()
 {
+    wirelessMode = WIRELESS_MODE_NIFI;
 	Wifi_InitDefault(false);
 	Wifi_SetPromiscuousMode(1);
-	Wifi_EnableWifi();
     // get identity
     int temp = 0;
     unsigned char macAddress[6];
@@ -285,21 +301,13 @@ void enableNifi()
     macId = (temp + (rawtime & 0xFF)) & 0xFF;
     printLog("MAC %u (%u)", macId, macLength);
 
+	Wifi_EnableWifi();
 	Wifi_RawSetPacketHandler(packetHandler);
 	Wifi_SetChannel(10);
     nifiEnabled = true;
     nifi = RESET_NIFI;
 
-    if(1) {
-		//for secial configuration for wifi
-		irqDisable(IRQ_TIMER3);
-		irqSet(IRQ_TIMER3, Timer_10ms); // replace timer IRQ
-		// re-set timer3
-		TIMER3_CR = 0;
-		TIMER3_DATA = -(6553 / 5); // 6553.1 * 256 / 5 cycles = ~10ms;
-		TIMER3_CR = 0x00C2; // enable, irq, 1/256 clock
-		irqEnable(IRQ_TIMER3);
-	}
+
 }
 
 void disableNifi() {
