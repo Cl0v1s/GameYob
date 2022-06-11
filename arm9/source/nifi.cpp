@@ -73,6 +73,7 @@ void timeout() {
 
 void setTransferState(unsigned char state) {
     if(nifi.state != TRANSFER_WAIT && state == TRANSFER_WAIT) {
+        printLog("WAITING\n");
         // timerStart(3, ClockDivider_1024, 5, timeout);
     } else if(state != TRANSFER_WAIT) {
         //timerStop(3);
@@ -131,7 +132,7 @@ void packetHandler(int packetID, int readlength)
    case SYNC1:
         {
             nifi.cylesToSerialTransfer = packet.i1;
-            //printLog("Received request for %u\n", nifi.cylesToSerialTransfer - nifi.cycles);
+            printLog("Received request for %u\n", nifi.cylesToSerialTransfer - nifi.cycles);
             nifi.pairBuffer = packet.b2;
             break;
         }
@@ -147,6 +148,9 @@ void packetHandler(int packetID, int readlength)
     case SYNC4: 
         {
             nifi.type = FOLLOWER;
+            nifi.cycles = 0;
+            nifi.pairCycles = 0;
+            nifi.cylesToSerialTransfer = 0;
             sendSync5(packet.i1);
             printLog("Reset as FOLLOWER\n");
             resetGameboy();
@@ -236,8 +240,12 @@ void waitForNifi() {
             setTransferState(TRANSFER_WAIT);
         } else applyNifi();
     } else {
-        nifi.pairBuffer = 0xFF;
-        applyNifi();
+        // if we are here, FOLLOWER tried to do a transfer as master
+        // if no transfer is aksed by LEADER, always answer with 0xFF
+        if(nifi.cylesToSerialTransfer == 0) {
+            nifi.pairBuffer = 0xFF;
+            applyNifi();
+        }
     }
 }
 
