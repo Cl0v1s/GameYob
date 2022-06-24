@@ -18,7 +18,6 @@
 #include "filechooser.h"
 #include "inputhelper.h"
 #include "common.h"
-#include "gbsnd.h"
 
 
 #define BACKDROP_COLOUR RGB15(0,0,0)
@@ -751,7 +750,6 @@ void displayIcon(int iconid) {
 
 
 void selectBorder() {
-    muteSND();
 
     if (borderChooserState.directory == "/" && borderPath != NULL) {
         char dest[256];
@@ -781,7 +779,6 @@ void selectBorder() {
     saveFileChooserState(&borderChooserState);
     loadFileChooserState(&romChooserState);
 
-    unmuteSND();
 }
 
 

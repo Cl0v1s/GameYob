@@ -17,7 +17,6 @@
 #include "gbcpu.h"
 #include "nifi.h"
 #include "gbgfx.h"
-#include "gbsnd.h"
 #include "cheats.h"
 #include "sgb.h"
 #include "gbs.h"
@@ -1276,7 +1275,6 @@ int loadState(int stateNum) {
         saveGame(); // Synchronize save file on sd with file in ram
 
     refreshGFX();
-    refreshSND();
 
     return 0;
 }
