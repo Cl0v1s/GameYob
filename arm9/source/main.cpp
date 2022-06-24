@@ -11,6 +11,7 @@
 #include "inputhelper.h"
 #include "filechooser.h"
 #include "timer.h"
+#include "gbsnd.h"
 #include "gameboy.h"
 #include "mmu.h"
 #include "main.h"
@@ -35,14 +36,17 @@ void fifoValue32Handler(u32 value, void* user_data) {
         case FIFOMSG_LID_CLOSED:
             // Entering sleep mode
             scalingWasOn = sharedData->scalingOn;
+            soundWasDisabled = soundDisabled;
             wasPaused = isGameboyPaused();
 
             sharedData->scalingOn = 0;
+            soundDisabled = true;
             pauseGameboy();
             break;
         case FIFOMSG_LID_OPENED:
             // Exiting sleep mode
             sharedData->scalingOn = scalingWasOn;
+            soundDisabled = soundWasDisabled;
             if (!wasPaused)
                 unpauseGameboy();
             // Time isn't incremented properly in sleep mode, compensate here.
@@ -139,6 +143,7 @@ void initializeGameboy() {
     initCPU();
     initLCD();
     initGFX();
+    initSND();
 
     if (!gbsMode && !probingForBorder && suspendStateExists) {
         loadState(-1);
@@ -210,8 +215,14 @@ int main(int argc, char* argv[])
         GBA_BUS[0x1000] = 0xF0;
     }
 
+    fifoSetValue32Handler(FIFO_USER_02, fifoValue32Handler, NULL);
 
     sharedData = (SharedData*)memUncached(malloc(sizeof(SharedData)));
+    sharedData->scalingOn = false;
+    sharedData->enableSleepMode = true;
+    // It might make more sense to use "fifoSendAddress" here.
+    // However there may have been something wrong with it in dsi mode.
+    fifoSendValue32(FIFO_USER_03, ((u32)sharedData)&0x00ffffff);
 
     initInput();
     setMenuDefaults();

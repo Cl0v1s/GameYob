@@ -4,6 +4,7 @@
 #include "gbcpu.h"
 #include "gameboy.h"
 #include "gbgfx.h"
+#include "gbsnd.h"
 #include "inputhelper.h"
 #include "main.h"
 #include "nifi.h"
@@ -862,6 +863,7 @@ void writeIO(u8 ioReg, u8 val)
         case 0x3D:
         case 0x3E:
         case 0x3F:
+            handleSoundRegister(ioReg, val);
             return;
         case 0x40:
         case 0x42:

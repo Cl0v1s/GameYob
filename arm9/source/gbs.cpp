@@ -7,6 +7,7 @@
 #include "gbcpu.h"
 #include "gameboy.h"
 #include "main.h"
+#include "gbsnd.h"
 #include "console.h"
 
 #define READ16(src) (*(src) | *(src+1)<<8)
@@ -157,6 +158,7 @@ void gbsCheckInput() {
         gbsPlayingSong = -1;
         ime = 0;
         writeIO(0xff, 0);
+        initSND();
     }
     gbsRedraw();
 

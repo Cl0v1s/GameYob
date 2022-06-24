@@ -3,6 +3,7 @@
 #include "console.h"
 #include "inputhelper.h"
 #include "filechooser.h"
+#include "gbsnd.h"
 #include "main.h"
 #include "gameboy.h"
 #include "mmu.h"
@@ -65,6 +66,7 @@ void subMenuGenericUpdateFunc() {
 // Functions corresponding to menu options
 
 void suspendFunc(int value) {
+    muteSND();
     if (!autoSavingEnabled) {
         printMenuMessage("Saving SRAM...");
         saveGame();
@@ -76,6 +78,7 @@ void suspendFunc(int value) {
     selectRom();
 }
 void exitFunc(int value) {
+    muteSND();
     if (!autoSavingEnabled && numRamBanks && !gbsMode) {
         printMenuMessage("Saving SRAM...");
         saveGame();
@@ -85,6 +88,7 @@ void exitFunc(int value) {
     selectRom();
 }
 void exitNoSaveFunc(int value) {
+    muteSND();
     closeMenu();
     selectRom();
 }
@@ -141,7 +145,10 @@ void keyConfigFunc(int value) {
 
 void saveSettingsFunc(int value) {
     printMenuMessage("Saving settings...");
+    muteSND();
     writeConfigFile();
+    if (!isGameboyPaused())
+        unmuteSND();
     printMenuMessage("Settings saved.");
 }
 
@@ -158,13 +165,17 @@ void stateSelectFunc(int value) {
 }
 void stateSaveFunc(int value) {
     printMenuMessage("Saving state...");
+    muteSND();
     saveState(stateNum);
+    if (!isGameboyPaused())
+        unmuteSND();
     printMenuMessage("State saved.");
     // Will activate the other state options
     stateSelectFunc(stateNum);
 }
 void stateLoadFunc(int value) {
     printMenuMessage("Loading state...");
+    muteSND();
     if (loadState(stateNum) == 0) {
         closeMenu();
         updateScreens();
@@ -172,9 +183,12 @@ void stateLoadFunc(int value) {
     }
 }
 void stateDeleteFunc(int value) {
+    muteSND();
     deleteState(stateNum);
     // Will grey out the other state options
     stateSelectFunc(stateNum);
+    if (!isGameboyPaused())
+        unmuteSND();
 }
 void resetFunc(int value) {
     closeMenu();
@@ -262,6 +276,9 @@ void windowEnableFunc(int value) {
         REG_DISPCNT |= DISPLAY_WIN0_ON;
 }
 void soundEnableFunc(int value) {
+    soundDisabled = !value;
+    sharedData->fifosSent++;
+    fifoSendValue32(FIFO_USER_01, GBSND_MUTE_COMMAND<<20);
 }
 void advanceFrameFunc(int value) {
     advanceFrame = true;
@@ -278,6 +295,10 @@ void versionInfoFunc(int value) {
 }
 
 void setChanEnabled(int chan, int value) {
+    if (value == 0)
+        disableChannel(chan);
+    else
+        enableChannel(chan);
 }
 void chan1Func(int value) {
     setChanEnabled(0, value);
@@ -299,9 +320,14 @@ void setRumbleFunc(int value) {
 }
 
 void hyperSoundFunc(int value) {
+    hyperSound = value;
+    sharedData->hyperSound = value;
+    sharedData->fifosSent++;
+    fifoSendValue32(FIFO_USER_01, GBSND_HYPERSOUND_ENABLE_COMMAND<<20 | hyperSound);
 }
 
 void setAutoSaveFunc(int value) {
+    muteSND();
     if (autoSavingEnabled)
         gameboySyncAutosave();
     else
@@ -311,6 +337,8 @@ void setAutoSaveFunc(int value) {
         enableMenuOption("Exit without saving");
     else
         disableMenuOption("Exit without saving");
+    if (!isGameboyPaused())
+        unmuteSND();
 }
 
 struct MenuOption {

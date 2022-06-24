@@ -6,6 +6,7 @@
 #include "gbcpu.h"
 #include "mmu.h"
 #include "gbgfx.h"
+#include "gbsnd.h"
 #include "gameboy.h"
 #include "main.h"
 #ifdef DS

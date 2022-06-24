@@ -18,7 +18,7 @@ TID = 00030004
 GID = GYOB
 
 
-.PHONY: arm9/$(TARGET).elf
+.PHONY: arm7/$(TARGET).elf arm9/$(TARGET).elf
 
 #---------------------------------------------------------------------------------
 # main targets
@@ -26,19 +26,21 @@ GID = GYOB
 all: $(TARGET).nds $(TARGET).cia
 
 #---------------------------------------------------------------------------------
-$(TARGET).nds	: arm9/$(TARGET).elf
-	@ndstool  -9 arm9/$(TARGET).elf -b $(GAME_ICON) "$(GAME_TITLE);$(GAME_SUBTITLE1);$(GAME_SUBTITLE2)" -h 0x200 -c $(TARGET).nds 
+$(TARGET).nds	:	arm7/$(TARGET).elf arm9/$(TARGET).elf
+	@ndstool -7 arm7/$(TARGET).elf -9 arm9/$(TARGET).elf -b $(GAME_ICON) "$(GAME_TITLE);$(GAME_SUBTITLE1);$(GAME_SUBTITLE2)" -h 0x200 -c $(TARGET).nds 
 	@echo built ... $(notdir $@)
 
-$(TARGET)_dsi.nds:  arm9/$(TARGET).elf
-	@ndstool  -9 arm9/$(TARGET).elf -b $(GAME_ICON) "$(GAME_TITLE);$(GAME_SUBTITLE1);$(GAME_SUBTITLE2)" -g $(GID) -u $(TID) -c $@
+$(TARGET)_dsi.nds: arm7/$(TARGET).elf arm9/$(TARGET).elf
+	@ndstool -7 arm7/$(TARGET).elf -9 arm9/$(TARGET).elf -b $(GAME_ICON) "$(GAME_TITLE);$(GAME_SUBTITLE1);$(GAME_SUBTITLE2)" -g $(GID) -u $(TID) -c $@
 	@echo built ... $(notdir $@)
 
 $(TARGET).cia: $(TARGET)_dsi.nds
 	@make_cia --srl=$(TARGET)_dsi.nds
 	@mv $(TARGET)_dsi.cia $(TARGET).cia
 
-
+#---------------------------------------------------------------------------------
+arm7/$(TARGET).elf:
+	$(MAKE) -C arm7
 	
 #---------------------------------------------------------------------------------
 arm9/$(TARGET).elf:
@@ -47,4 +49,5 @@ arm9/$(TARGET).elf:
 #---------------------------------------------------------------------------------
 clean:
 	$(MAKE) -C arm9 clean
+	$(MAKE) -C arm7 clean
 	rm -f $(TARGET).nds $(TARGET).dsi $(TARGET).cia $(TARGET).arm7 $(TARGET).arm9

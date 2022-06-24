@@ -5,6 +5,7 @@
 #include "common.h"
 #include "gbcpu.h"
 #include "gbgfx.h"
+#include "gbsnd.h"
 #include "mmu.h"
 #include "timer.h"
 #include "main.h"
@@ -163,6 +164,7 @@ void gameboyCheckInput() {
         sharedData->hyperSound = false;
     }
     else {
+        sharedData->hyperSound = hyperSound;
     }
 
     if (keyJustPressed(mapGbKey(KEY_RESET)))
@@ -183,11 +185,13 @@ void gameboyUpdateVBlank() {
     }
 
     if (gameboyPaused) {
+        muteSND();
         while (gameboyPaused) {
             swiWaitForVBlank();
             readKeys();
             updateMenu();
         }
+        unmuteSND();
     }
 
 	if (gbsMode) {
@@ -195,6 +199,7 @@ void gameboyUpdateVBlank() {
 	}
 	else {
 		drawScreen();
+		soundUpdateVBlank();
 
 		if (resettingGameboy) {
             nifi.cycles = 0;
@@ -314,6 +319,13 @@ void runEmul()
         
         updateTimers(cycles);
 
+        soundCycles += cycles>>doubleSpeed;
+        if (soundCycles >= cyclesToSoundEvent) {
+            cyclesToSoundEvent = 10000;
+            updateSound(soundCycles);
+            soundCycles = 0;
+        }
+        setEventCycles(cyclesToSoundEvent);
 
         updateLCD(cycles);
 
