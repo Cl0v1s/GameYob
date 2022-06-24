@@ -42,6 +42,7 @@ bool init() {
 void send(BGBPacket packet) {
     // printLog("Sending %d / %d\n", packet.b1, packet.b2);
     send(sock, &packet, sizeof(BGBPacket), 0);
+    // https://devkitpro.org/viewtopic.php?t=3026
     swiWaitForVBlank();
 }
 
@@ -50,6 +51,7 @@ BGBPacket receive() {
     BGBPacket packet = { 0, 0, 0, 0, 0};
     int received = recv(sock, &packet, sizeof(BGBPacket), 0);
     if(received == -1) return packet;
+    // https://devkitpro.org/viewtopic.php?t=3026
     swiWaitForVBlank();
     // printLog("Receiving %d / %d %d\n", packet.b1, packet.b2, received);
     return packet;
