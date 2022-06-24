@@ -78,7 +78,7 @@ void setTransferState(unsigned char state) {
 void sendSync1(int when) {
     if(nifi.type == LEADER) {
         setTransferState(TRANSFER_WAIT);
-        printLog("Sent transfer request with %02x\n", nifi.selfBuffer);
+        //printLog("Sent transfer request with %02x\n", nifi.selfBuffer);
         BGBPacket sync1 = { SYNC1, nifi.selfBuffer, ioRam[0x02], 0, nifi.cycles + when };
         sendPacket(sync1);
     }
@@ -91,6 +91,7 @@ void sendSync2() {
 }
 
 void sendSync3() {
+    printLog("sync %u\n", nifi.cycles);
     BGBPacket sync3 = { SYNC3, 0, 42, 42, nifi.cycles };
     sendPacket(sync3);
 }
@@ -105,29 +106,14 @@ void sendSync5(unsigned int cycles) {
     sendPacket(sync5);
 }
 
-void packetHandler(int packetID, int readlength)
+void packetHandler(BGBPacket packet)
 {
-    static char data[4096];
-	Wifi_RxRawReadPacket(packetID, readlength, (unsigned short *)data);
-    // we ignore packets coming from us
-    printLog("Received %d / %d\n", data[35], data[36]);
-    if (data[32] != 'Y' || data[33] != 'O' || data[34] == macId) {
-        return;
-    }
-
-    BGBPacket packet;
-    packet.b1 = data[35];
-    packet.b2 = data[36];
-    packet.b3 = data[37];
-    packet.b4 = data[38];
-    packet.i1 = *((unsigned int*)(data+39));
-
     switch (packet.b1)
     {
    case SYNC1:
         {
             nifi.cylesToSerialTransfer = packet.i1;
-            // printLog("Received request for %u\n", nifi.cylesToSerialTransfer - nifi.cycles);
+            //printLog("Received request for %u\n", nifi.cylesToSerialTransfer - nifi.cycles);
             nifi.pairBuffer = packet.b2;
             break;
         }
@@ -138,6 +124,8 @@ void packetHandler(int packetID, int readlength)
     break;
    case SYNC3:
         {
+            printLog("rec %u\n", packet.i1);
+            //printLog("gap %u\n", packet.i1 - nifi.cycles);
             nifi.pairCycles = packet.i1;
             break;
         }
@@ -204,11 +192,10 @@ void manageStuck() {
 
 void cyclesWithNifi() {
     if(!nifiEnabled) return;
-    receive();
+    packetHandler(receive());
 
     manageStuck();
     if(nifi.state == TRANSFER_WAIT) {
-        retry();
         setEventCycles(0);
         return;
     } else {
@@ -262,7 +249,7 @@ void waitForNifi() {
 }
 
 void applyNifi() {
-    printLog("S:0x%02x R:0x%02x\n", nifi.selfBuffer, nifi.pairBuffer);
+    //printLog("S:0x%02x R:0x%02x\n", nifi.selfBuffer, nifi.pairBuffer);
     ioRam[0x01] = nifi.pairBuffer;
     requestInterrupt(SERIAL);
     ioRam[0x02] &= ~0x80;
@@ -279,10 +266,7 @@ void applyNifi() {
 int originalInterruptWaitMode = 0;
 void enableNifi()
 {
-  
-    init();
-    nifiEnabled = true;
-
+    nifiEnabled = init();
 }
 
 void disableNifi() {

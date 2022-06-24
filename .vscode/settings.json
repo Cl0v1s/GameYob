@@ -5,6 +5,7 @@
         "string_view": "cpp",
         "condition_variable": "cpp",
         "cerrno": "cpp",
-        "network.h": "c"
+        "network.h": "c",
+        "cmath": "cpp"
     }
 }

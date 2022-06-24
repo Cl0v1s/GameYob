@@ -9,7 +9,7 @@ struct BGBPacket {
 };
 
 
-void init();
+bool init();
 void send(BGBPacket packet);
 
 
