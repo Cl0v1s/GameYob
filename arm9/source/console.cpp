@@ -120,7 +120,6 @@ void returnToLauncherFunc(int value) {
 
 void nifiEnableFunc(int value) {
     if (value) {
-		printMenuMessage("Warning: link emulation sucks.");
         setMenuOption("GB Printer", 0);
         enableNifi();
 	}

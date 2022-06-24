@@ -20,6 +20,7 @@
 #include "cheats.h"
 #include "gbs.h"
 #include "common.h"
+#include "network.h"
 
 extern time_t rawTime;
 extern time_t lastRawTime;
@@ -231,6 +232,7 @@ int main(int argc, char* argv[])
     // initGFX is called in initializeGameboy, but I also call it from here to
     // set up the vblank handler asap.
     initGFX();
+
 
     consoleInitialized = false;
 

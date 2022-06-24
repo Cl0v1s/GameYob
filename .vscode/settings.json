@@ -3,6 +3,8 @@
         "array": "cpp",
         "string": "cpp",
         "string_view": "cpp",
-        "condition_variable": "cpp"
+        "condition_variable": "cpp",
+        "cerrno": "cpp",
+        "network.h": "c"
     }
 }

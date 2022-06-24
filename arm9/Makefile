@@ -24,25 +24,25 @@ GFX			:= gfx/
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
-ARCH	:=	# -mthumb -mthumb-interwork	#This may cause some problem when there are some cross-calls between C&Assembly. It also ends up being slower than non-Thumb code.
+ARCH	:=	-mthumb -mthumb-interwork
 
-CFLAGS	:=	-Wall -Wno-psabi -DNO_VIZ\
- 			-march=armv5te -mtune=arm946e-s -fomit-frame-pointer\
-			-ffast-math -O3 $(ARCH) \
-			-DVERSION_STRING=\"`git describe --always --abbrev=4`\"
-			#-O3 -fpeel-loops -fno-pic -finline -fearly-inlining \
+CFLAGS	:=	-g -Wall -O2\
+			-march=armv5te -mtune=arm946e-s -fomit-frame-pointer\
+			-ffast-math \
+			-DVERSION_STRING=\"`git describe --always --abbrev=4`\"\
+			$(ARCH)
 
-CFLAGS	+=	$(INCLUDE) -DARM9 -DDS
+CFLAGS	+=	$(INCLUDE) -DARM9
 CXXFLAGS	:=	$(CFLAGS) -fno-rtti -fno-exceptions
 
-ASFLAGS	:=	$(ARCH) -march=armv5te -mtune=arm946e-s $(CFLAGS)
+ASFLAGS	:=	-g $(ARCH)
 
-LDFLAGS	=	-specs=ds_arm9.specs $(ARCH) -Wl,-Map,$(notdir $*.map)
+LDFLAGS	=	-specs=ds_arm9.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lfat -lnds9 -ldsgmdswifi9 
+LIBS	:=	-ldswifi9 -lfat -lnds9
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib

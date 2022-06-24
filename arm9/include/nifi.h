@@ -14,6 +14,8 @@ struct NIFI {
     unsigned int cylesToSerialTransfer;
 };
 
+
+
 extern NIFI nifi;
 
 

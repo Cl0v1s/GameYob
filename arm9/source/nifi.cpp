@@ -1,6 +1,5 @@
 #include <nds.h>
 #include <dswifi9.h>
-#include "dsgmDSWiFi.h"
 #include <time.h>
 #include <climits>
 #include "nifi.h"
@@ -11,7 +10,8 @@
 #include "console.h"
 #include "timer.h"
 #include "gbgfx.h"
-
+#include <netinet/in.h>
+#include "network.h"
 
 
 #define UNDEFINED 0
@@ -30,7 +30,7 @@
 
 #define RESET_NIFI { UNDEFINED, NO_TRANSFER, 0xFF, 0xFF, 0, 0, 0 }
 
-#define STUCK_DELAY USHRT_MAX*20
+#define STUCK_DELAY USHRT_MAX*2000
 
 bool nifiEnabled = true;
 unsigned char macId;
@@ -41,27 +41,8 @@ NIFI nifi = RESET_NIFI;
  * @brief Packet management
  * 
  */
-
-struct BGBPacket {
-    unsigned char b1;
-    unsigned char b2;
-    unsigned char b3;
-    unsigned char b4;
-    unsigned int i1;
-};
-
 void sendPacket(BGBPacket packet) {
-    int size = 2+5+sizeof(unsigned int);
-    unsigned char buffer[size];
-    buffer[0] = 'Y';
-    buffer[1] = 'O';
-    buffer[2] = macId;
-    buffer[3] = packet.b1;
-    buffer[4] = packet.b2;
-    buffer[5] = packet.b3;
-    buffer[6] = packet.b4;
-    *((unsigned int*)(buffer+7)) = packet.i1;
-    Wifi_RawTxFrame(size, 0x0014, (unsigned short *)buffer);
+    send(packet);
 }
 /**
  * @brief Protocol
@@ -129,6 +110,7 @@ void packetHandler(int packetID, int readlength)
     static char data[4096];
 	Wifi_RxRawReadPacket(packetID, readlength, (unsigned short *)data);
     // we ignore packets coming from us
+    printLog("Received %d / %d\n", data[35], data[36]);
     if (data[32] != 'Y' || data[33] != 'O' || data[34] == macId) {
         return;
     }
@@ -222,6 +204,7 @@ void manageStuck() {
 
 void cyclesWithNifi() {
     if(!nifiEnabled) return;
+    receive();
 
     manageStuck();
     if(nifi.state == TRANSFER_WAIT) {
@@ -296,36 +279,14 @@ void applyNifi() {
 int originalInterruptWaitMode = 0;
 void enableNifi()
 {
-    wirelessMode = WIRELESS_MODE_NIFI;
-	Wifi_InitDefault(false);
-	Wifi_SetPromiscuousMode(1);
-    // get identity
-    int temp = 0;
-    unsigned char macAddress[6];
-    int macLength = Wifi_GetData(WIFIGETDATA_MACADDRESS, sizeof(char)*6, macAddress);
-    for(int i = 0; i < macLength; i++) {
-        temp += macAddress[i];
-    }
-    time_t rawtime;
-    time (&rawtime);
-    macId = (temp + (rawtime & 0xFF)) & 0xFF;
-    printLog("MAC %u (%u)", macId, macLength);
-
-	Wifi_EnableWifi();
-	Wifi_RawSetPacketHandler(packetHandler);
-	Wifi_SetChannel(10);
+  
+    init();
     nifiEnabled = true;
-    nifi = RESET_NIFI;
 
-    // always wait for Vblank
-    originalInterruptWaitMode = interruptWaitMode;
-    interruptWaitMode = 1;
 }
 
 void disableNifi() {
     printLog("Disabling Nifi\n");
-    Wifi_DisableWifi();
+    stop();
     nifiEnabled = false;
-
-    interruptWaitMode = originalInterruptWaitMode;
 }
