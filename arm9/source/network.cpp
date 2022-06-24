@@ -18,7 +18,7 @@ bool init() {
 
     server.sin_family = AF_INET;
     server.sin_port = htons(8080);
-    server.sin_addr.s_addr= inet_addr("192.168.1.34");
+    server.sin_addr.s_addr= inet_addr("192.168.43.34");
 
     sock = socket( AF_INET, SOCK_STREAM, 0 );
     connect(sock,(struct sockaddr *)&server, sizeof(server));
@@ -42,6 +42,7 @@ bool init() {
 void send(BGBPacket packet) {
     // printLog("Sending %d / %d\n", packet.b1, packet.b2);
     send(sock, &packet, sizeof(BGBPacket), 0);
+    swiWaitForVBlank();
 }
 
 
@@ -49,6 +50,7 @@ BGBPacket receive() {
     BGBPacket packet = { 0, 0, 0, 0, 0};
     int received = recv(sock, &packet, sizeof(BGBPacket), 0);
     if(received == -1) return packet;
+    swiWaitForVBlank();
     // printLog("Receiving %d / %d %d\n", packet.b1, packet.b2, received);
     return packet;
 }

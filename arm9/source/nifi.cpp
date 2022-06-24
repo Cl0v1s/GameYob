@@ -60,7 +60,7 @@ void disableRetry() {
 }
 
 void retry() {
-    if(retried == 0 || rawTime - retried < 2) return; // wait 2 sec
+    if(retried == 0 || rawTime - retried < 5) return; // wait 5 sec
     printLog("retry\n");
     sendSync1(0);
     retried = rawTime;
@@ -192,10 +192,12 @@ void manageStuck() {
 
 void cyclesWithNifi() {
     if(!nifiEnabled) return;
+    Wifi_EnableWifi();
     packetHandler(receive());
 
     manageStuck();
     if(nifi.state == TRANSFER_WAIT) {
+        retry();
         setEventCycles(0);
         return;
     } else {
