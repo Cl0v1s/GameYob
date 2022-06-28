@@ -7,8 +7,12 @@
 #include "console.h"
 #include "network.h"
 
+// https://devkitpro.org/viewtopic.php?t=3026
+#define BBL 1400
+
 int sock;
 struct sockaddr_in server = { 0 };
+int bytesBeforeLock = BBL;
 
 
 bool init() {
@@ -39,20 +43,27 @@ bool init() {
     return true;
 }
 
+void manageLock() {
+    bytesBeforeLock -= sizeof(BGBPacket);
+    if(bytesBeforeLock <= 0) {
+        bytesBeforeLock = BBL;
+        // https://devkitpro.org/viewtopic.php?t=3026
+        swiWaitForVBlank();
+    }
+}
+
 void send(BGBPacket packet) {
+    manageLock();
     // printLog("Sending %d / %d\n", packet.b1, packet.b2);
     send(sock, &packet, sizeof(BGBPacket), 0);
-    // https://devkitpro.org/viewtopic.php?t=3026
-    swiWaitForVBlank();
 }
 
 
 BGBPacket receive() {
+    manageLock();
     BGBPacket packet = { 0, 0, 0, 0, 0};
     int received = recv(sock, &packet, sizeof(BGBPacket), 0);
     if(received == -1) return packet;
-    // https://devkitpro.org/viewtopic.php?t=3026
-    swiWaitForVBlank();
     // printLog("Receiving %d / %d %d\n", packet.b1, packet.b2, received);
     return packet;
 }
