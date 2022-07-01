@@ -14,6 +14,11 @@ int sock;
 struct sockaddr_in server = { 0 };
 int bytesBeforeLock = BBL;
 
+void selectIp() {
+    in_addr ip;
+    clearConsole();
+}
+
 
 bool init() {
 	if(!Wifi_InitDefault(WFC_CONNECT)) {
