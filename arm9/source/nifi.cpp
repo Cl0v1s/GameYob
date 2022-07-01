@@ -1,6 +1,4 @@
 #include <nds.h>
-#include <dswifi9.h>
-#include "dsgmDSWiFi.h"
 #include <time.h>
 #include <climits>
 #include "nifi.h"
@@ -11,8 +9,7 @@
 #include "console.h"
 #include "timer.h"
 #include "gbgfx.h"
-
-
+#include "network.h"
 
 #define UNDEFINED 0
 #define LEADER 1
@@ -33,36 +30,9 @@
 #define STUCK_DELAY USHRT_MAX*20
 
 bool nifiEnabled = true;
-unsigned char macId;
 
 NIFI nifi = RESET_NIFI;
 
-/**
- * @brief Packet management
- * 
- */
-
-struct BGBPacket {
-    unsigned char b1;
-    unsigned char b2;
-    unsigned char b3;
-    unsigned char b4;
-    unsigned int i1;
-};
-
-void sendPacket(BGBPacket packet) {
-    int size = 2+5+sizeof(unsigned int);
-    unsigned char buffer[size];
-    buffer[0] = 'Y';
-    buffer[1] = 'O';
-    buffer[2] = macId;
-    buffer[3] = packet.b1;
-    buffer[4] = packet.b2;
-    buffer[5] = packet.b3;
-    buffer[6] = packet.b4;
-    *((unsigned int*)(buffer+7)) = packet.i1;
-    Wifi_RawTxFrame(size, 0x0014, (unsigned short *)buffer);
-}
 /**
  * @brief Protocol
  * 
@@ -100,6 +70,7 @@ void sendSync1(int when) {
         printLog("Sent transfer request with %02x\n", nifi.selfBuffer);
         BGBPacket sync1 = { SYNC1, nifi.selfBuffer, ioRam[0x02], 0, nifi.cycles + when };
         sendPacket(sync1);
+        //swiWaitForVBlank();
     }
 }
 
@@ -122,68 +93,6 @@ void sendSync4() {
 void sendSync5(unsigned int cycles) {
     BGBPacket sync5 = { SYNC5, 0, 42, 42, cycles};
     sendPacket(sync5);
-}
-
-void packetHandler(int packetID, int readlength)
-{
-    static char data[4096];
-	Wifi_RxRawReadPacket(packetID, readlength, (unsigned short *)data);
-    // we ignore packets coming from us
-    if (data[32] != 'Y' || data[33] != 'O' || data[34] == macId) {
-        return;
-    }
-
-    BGBPacket packet;
-    packet.b1 = data[35];
-    packet.b2 = data[36];
-    packet.b3 = data[37];
-    packet.b4 = data[38];
-    packet.i1 = *((unsigned int*)(data+39));
-
-    switch (packet.b1)
-    {
-   case SYNC1:
-        {
-            nifi.cylesToSerialTransfer = packet.i1;
-            // printLog("Received request for %u\n", nifi.cylesToSerialTransfer - nifi.cycles);
-            nifi.pairBuffer = packet.b2;
-            break;
-        }
-    case SYNC2:
-        nifi.pairBuffer = packet.b2;
-        disableRetry();
-        setTransferState(TRANSFER_READY);
-    break;
-   case SYNC3:
-        {
-            nifi.pairCycles = packet.i1;
-            break;
-        }
-    case SYNC4: 
-        {
-            nifi.type = FOLLOWER;
-            nifi.cycles = 0;
-            nifi.pairCycles = 0;
-            nifi.cylesToSerialTransfer = 0;
-            disableRetry();
-            sendSync5(packet.i1);
-            printLog("Reset as FOLLOWER\n");
-            resetGameboy();
-            break;
-        }
-    case SYNC5:
-        {
-            if(nifi.type == UNDEFINED) {
-                nifi.type = LEADER;
-                disableRetry();
-                printLog("Reset as LEADER\n");
-                resetGameboy();
-            }
-            break;
-        }
-    default:
-        break;
-    }
 }
 
 /**
@@ -220,9 +129,60 @@ void manageStuck() {
     lastCycles = nifi.cycles;
 }
 
+void receive() {
+    BGBPacket packet = receivePacket();
+    if(packet.b1 == 0) return;
+
+    switch (packet.b1)
+        {
+    case SYNC1:
+            {
+                nifi.cylesToSerialTransfer = packet.i1;
+                // printLog("Received request for %u\n", nifi.cylesToSerialTransfer - nifi.cycles);
+                nifi.pairBuffer = packet.b2;
+                break;
+            }
+        case SYNC2:
+            nifi.pairBuffer = packet.b2;
+            disableRetry();
+            setTransferState(TRANSFER_READY);
+        break;
+    case SYNC3:
+            {
+                nifi.pairCycles = packet.i1;
+                break;
+            }
+        case SYNC4: 
+            {
+                nifi.type = FOLLOWER;
+                nifi.cycles = 0;
+                nifi.pairCycles = 0;
+                nifi.cylesToSerialTransfer = 0;
+                disableRetry();
+                sendSync5(packet.i1);
+                printLog("Reset as FOLLOWER\n");
+                resetGameboy();
+                break;
+            }
+        case SYNC5:
+            {
+                if(nifi.type == UNDEFINED) {
+                    nifi.type = LEADER;
+                    disableRetry();
+                    printLog("Reset as LEADER\n");
+                    resetGameboy();
+                }
+                break;
+            }
+        default:
+            break;
+        }
+
+}
+
 void cyclesWithNifi() {
     if(!nifiEnabled) return;
-
+    receive();
     manageStuck();
     if(nifi.state == TRANSFER_WAIT) {
         retry();
@@ -296,36 +256,11 @@ void applyNifi() {
 int originalInterruptWaitMode = 0;
 void enableNifi()
 {
-    wirelessMode = WIRELESS_MODE_NIFI;
-	Wifi_InitDefault(false);
-	Wifi_SetPromiscuousMode(1);
-    // get identity
-    int temp = 0;
-    unsigned char macAddress[6];
-    int macLength = Wifi_GetData(WIFIGETDATA_MACADDRESS, sizeof(char)*6, macAddress);
-    for(int i = 0; i < macLength; i++) {
-        temp += macAddress[i];
-    }
-    time_t rawtime;
-    time (&rawtime);
-    macId = (temp + (rawtime & 0xFF)) & 0xFF;
-    printLog("MAC %u (%u)", macId, macLength);
-
-	Wifi_EnableWifi();
-	Wifi_RawSetPacketHandler(packetHandler);
-	Wifi_SetChannel(10);
+    enableNetwork();
     nifiEnabled = true;
-    nifi = RESET_NIFI;
-
-    // always wait for Vblank
-    originalInterruptWaitMode = interruptWaitMode;
-    interruptWaitMode = 1;
 }
 
 void disableNifi() {
-    printLog("Disabling Nifi\n");
-    Wifi_DisableWifi();
+    disableNetwork();
     nifiEnabled = false;
-
-    interruptWaitMode = originalInterruptWaitMode;
 }
