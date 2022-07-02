@@ -16,52 +16,79 @@
 unsigned char macId;
 std::queue<BGBPacket> receivedPackets;
 std::queue<BGBPacket> sendPackets;
+static char incomingData[1032];
+bool newData = false;
 
+int lastDsFrameCounter = -1;
 
 void sendPacket(BGBPacket packet) {
-    int size = 2+5+sizeof(unsigned int);
-    unsigned char buffer[size];
+    sendPacket.push(packet);
+}
+
+bool send() {
+    if(lastDsFrameCounter == dsFrameCounter) {
+        return false;
+    }
+    lastDsFrameCounter = dsFrameCounter;
+
+    int size = sendPackets.size() * sizeof(BGBPacket) + 2;
+    char buffer[size];
+    int index = 4;
     buffer[0] = 'Y';
     buffer[1] = 'O';
     buffer[2] = macId;
-    buffer[3] = packet.b1;
-    buffer[4] = packet.b2;
-    buffer[5] = packet.b3;
-    buffer[6] = packet.b4;
-    *((unsigned int*)(buffer+7)) = packet.i1;
-    if(Wifi_RawTxFrame(size, 0x0014, (unsigned short *)buffer) == -1) {
-        printLog("SEND FAILED\n");
-        swiWaitForVBlank();
-        sendPacket(packet);
+    buffer[3] = sendPackets.size();
+    printLog("Sending %d packets\n", sendPackets.size());
+    while(sendPackets.size() > 0) {
+        BGBPacket packet = sendPackets.front();
+        memcpy(buffer+index, &packet, sizeof(BGBPacket));
+        index += sizeof(BGBPacket);
+        sendPackets.pop();
+    }
+
+    Wifi_RawTxFrame(size, 0x0014, (unsigned short*)buffer);
+}
+
+void receive() {
+    if(!newData) return;
+    newData = false;
+    int size = incomingData[35];
+    int index = 36;
+    printLog("Analyzing %d packets\n", size);
+    while(size > 0) {
+        BGBPacket packet;
+        memcpy(&packet, incomingData+index, sizeof(BGBPacket));
+        printLog("P: %d %d %d %d %d\n", packet.b1, packet.b2, packet.b3, packet.b4, packet.i1);
+        index += sizeof(BGBPacket);
+        receivedPackets.push(packet);
+        size--;
     }
 }
 
-BGBPacket receivePacket() {
+BGBPacket updateNetwork() {
+    send();
+    receive();
+
     if(receivedPackets.size() == 0) return NULL_PACKET;
     BGBPacket p = receivedPackets.front();
     receivedPackets.pop();
-    //swiWaitForVBlank();
     return p;
 }
 
 
 void packetHandler(int packetID, int readlength)
 {
-    static char data[4096];
+    static char data[1032];
 	Wifi_RxRawReadPacket(packetID, readlength, (unsigned short *)data);
     // we ignore packets coming from us
     if (data[32] != 'Y' || data[33] != 'O' || data[34] == macId) {
         return;
     }
+    newData = true;
+    lastDsFrameCounter = dsFrameCounter;
+    memcpy(incomingData, data, 1032);
+    printLog("Got %d packets\n", data[35]);
 
-    BGBPacket packet;
-    packet.b1 = data[35];
-    packet.b2 = data[36];
-    packet.b3 = data[37];
-    packet.b4 = data[38];
-    packet.i1 = *((unsigned int*)(data+39));
-
-    receivedPackets.push(packet);
 }
 
 void enableNetwork() {
