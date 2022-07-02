@@ -193,7 +193,7 @@ void manageStuck() {
 void cyclesWithNifi() {
     if(!nifiEnabled) return;
     Wifi_EnableWifi();
-    packetHandler(receive());
+    packetHandler(updateNetwork());
 
     manageStuck();
     if(nifi.state == TRANSFER_WAIT) {

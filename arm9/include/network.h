@@ -13,6 +13,6 @@ bool init();
 void send(BGBPacket packet);
 
 
-BGBPacket receive();
+BGBPacket updateNetwork();
 
 void stop();
