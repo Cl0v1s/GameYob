@@ -49,7 +49,7 @@ void disableRetry() {
 }
 
 void retry() {
-    if(retried == 0 || rawTime - retried < 2) return; // wait 2 sec
+    if(retried == 0 || rawTime == retried) return; // wait 2 sec
     printLog("retry\n");
     sendSync1(0);
     retried = rawTime;
@@ -67,7 +67,7 @@ void setTransferState(unsigned char state) {
 void sendSync1(int when) {
     if(nifi.type == LEADER) {
         setTransferState(TRANSFER_WAIT);
-        printLog("Sent transfer request with %02x\n", nifi.selfBuffer);
+        //printLog("Sent transfer request with %02x\n", nifi.selfBuffer);
         BGBPacket sync1 = { SYNC1, nifi.selfBuffer, ioRam[0x02], 0, nifi.cycles + when };
         sendPacket(sync1);
         //swiWaitForVBlank();
@@ -129,10 +129,8 @@ void manageStuck() {
     lastCycles = nifi.cycles;
 }
 
-void receive() {
-    BGBPacket packet = receivePacket();
+void packetHandler(BGBPacket packet) {
     if(packet.b1 == 0) return;
-
     switch (packet.b1)
         {
     case SYNC1:
@@ -182,8 +180,8 @@ void receive() {
 
 void cyclesWithNifi() {
     if(!nifiEnabled) return;
-    receive();
-    manageStuck();
+    packetHandler(updateNetwork());
+    //manageStuck();
     if(nifi.state == TRANSFER_WAIT) {
         retry();
         setEventCycles(0);
@@ -239,7 +237,7 @@ void waitForNifi() {
 }
 
 void applyNifi() {
-    printLog("S:0x%02x R:0x%02x\n", nifi.selfBuffer, nifi.pairBuffer);
+    //printLog("S:0x%02x R:0x%02x\n", nifi.selfBuffer, nifi.pairBuffer);
     ioRam[0x01] = nifi.pairBuffer;
     requestInterrupt(SERIAL);
     ioRam[0x02] &= ~0x80;
